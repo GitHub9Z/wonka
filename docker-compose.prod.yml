@@ -1,0 +1,56 @@
+version: '3.8'
+
+# 生产环境配置 - 使用已构建的镜像（不需要源代码）
+# 适用于：在本地构建镜像后，上传到服务器使用
+
+services:
+  # MongoDB 数据库服务
+  mongodb:
+    image: mongo:7.0
+    container_name: wonka-mongodb
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    environment:
+      MONGO_INITDB_DATABASE: wonka
+    networks:
+      - wonka-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # 后端 API 服务 - 使用已构建的镜像
+  backend:
+    image: wonka-backend:latest  # 使用本地构建并上传的镜像
+    container_name: wonka-backend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - MONGODB_URI=mongodb://mongodb:27017/wonka
+      - JWT_SECRET=${JWT_SECRET:-your-secret-key-change-in-production}
+      - JWT_EXPIRES_IN=${JWT_EXPIRES_IN:-7d}
+      - WECHAT_APPID=${WECHAT_APPID:-}
+      - WECHAT_SECRET=${WECHAT_SECRET:-}
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      - wonka-network
+    volumes:
+      - ./uploads:/app/uploads  # 如果有文件上传功能
+
+volumes:
+  mongodb_data:
+    driver: local
+
+networks:
+  wonka-network:
+    driver: bridge
+

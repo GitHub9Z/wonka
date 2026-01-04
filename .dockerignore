@@ -1,0 +1,38 @@
+# 依赖
+node_modules
+npm-debug.log
+yarn-error.log
+package-lock.json
+
+# 构建产物（会在 Docker 中重新构建）
+dist
+public
+
+# 开发文件
+.env.local
+.env.development
+.env.test
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# Git
+.git
+.gitignore
+
+# 文档
+README.md
+*.md
+
+# 测试
+coverage
+.nyc_output
+
+# 其他
+.DS_Store
+*.log
+
