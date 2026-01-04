@@ -6,6 +6,9 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import path from 'path';
+import https from 'https';
+import http from 'http';
+import fs from 'fs';
 import { connectDatabase } from './config/database';
 import { errorHandler } from './middleware/errorHandler';
 import authRoutes from './routes/auth';
@@ -80,16 +83,58 @@ async function startServer() {
     await connectDatabase();
     console.log('[INFO] 数据库连接成功');
 
-    // 启动服务器
-    app.listen(PORT, () => {
-      console.log(`[INFO] 服务器运行在 http://localhost:${PORT}`);
-      console.log(`[INFO] API 文档: http://localhost:${PORT}/health`);
-      console.log(`[INFO] 后台管理: http://localhost:${PORT}/admin`);
-    });
+    const SSL_CERT_PATH = '/ssl/cert.pem';
+    const SSL_KEY_PATH = '/ssl/key.pem';
+    const HTTPS_PORT = process.env.HTTPS_PORT || 3443;
+
+    // 检查是否启用 HTTPS
+    if (SSL_CERT_PATH && SSL_KEY_PATH) {
+      try {
+        // 读取 SSL 证书
+        const cert = fs.readFileSync(SSL_CERT_PATH);
+        const key = fs.readFileSync(SSL_KEY_PATH);
+
+        // 创建 HTTPS 服务器
+        const httpsServer = https.createServer({ cert, key }, app);
+        
+        httpsServer.listen(HTTPS_PORT, () => {
+          console.log(`[INFO] HTTPS 服务器运行在 https://localhost:${HTTPS_PORT}`);
+          console.log(`[INFO] API 文档: https://localhost:${HTTPS_PORT}/health`);
+          console.log(`[INFO] 后台管理: https://localhost:${HTTPS_PORT}/admin`);
+        });
+
+        // 可选：同时启动 HTTP 服务器并重定向到 HTTPS
+        if (process.env.HTTP_REDIRECT_HTTPS === 'true') {
+          const httpApp = express();
+          httpApp.use((_req, res) => {
+            const host = _req.headers.host?.replace(/:\d+$/, '') || 'localhost';
+            res.redirect(`https://${host}:${HTTPS_PORT}${_req.url}`);
+          });
+          http.createServer(httpApp).listen(PORT, () => {
+            console.log(`[INFO] HTTP 服务器运行在 http://localhost:${PORT} (重定向到 HTTPS)`);
+          });
+        }
+      } catch (error) {
+        console.error('[ERROR] HTTPS 证书读取失败:', error);
+        console.log('[INFO] 回退到 HTTP 模式');
+        startHttpServer();
+      }
+    } else {
+      // 使用 HTTP
+      startHttpServer();
+    }
   } catch (error) {
     console.error('[ERROR] 服务器启动失败:', error);
     process.exit(1);
   }
+}
+
+function startHttpServer() {
+  app.listen(PORT, () => {
+    console.log(`[INFO] HTTP 服务器运行在 http://localhost:${PORT}`);
+    console.log(`[INFO] API 文档: http://localhost:${PORT}/health`);
+    console.log(`[INFO] 后台管理: http://localhost:${PORT}/admin`);
+  });
 }
 
 startServer();
