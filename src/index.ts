@@ -83,8 +83,8 @@ async function startServer() {
     await connectDatabase();
     console.log('[INFO] 数据库连接成功');
 
-    const SSL_CERT_PATH = '/ssl/cert.pem';
-    const SSL_KEY_PATH = '/ssl/key.pem';
+    const SSL_CERT_PATH = '/ssl/cert.cer';
+    const SSL_KEY_PATH = '/ssl/cert.key';
     const HTTPS_PORT = process.env.HTTPS_PORT || 3443;
 
     // 检查是否启用 HTTPS
