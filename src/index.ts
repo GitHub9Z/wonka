@@ -85,7 +85,7 @@ async function startServer() {
 
     const SSL_CERT_PATH = '/ssl/cert.pem';
     const SSL_KEY_PATH = '/ssl/cert.key';
-    const HTTPS_PORT = process.env.HTTPS_PORT || 3443;
+    const HTTPS_PORT = process.env.HTTPS_PORT || 443;
 
     // 检查是否启用 HTTPS
     if (SSL_CERT_PATH && SSL_KEY_PATH) {
