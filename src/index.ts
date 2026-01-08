@@ -51,7 +51,9 @@ app.get('/health', (req, res) => {
 });
 
 // API 路由
+console.log('[Server] 注册 API 路由...');
 app.use('/api/auth', authRoutes);
+console.log('[Server]   ✅ /api/auth - 认证路由');
 app.use('/api/user', userRoutes);
 // app.use('/api/artworks', artworkRoutes); // 已移除，改用 /api/copyright 路由
 app.use('/api/shop', shopRoutes);
@@ -63,6 +65,8 @@ app.use('/api/appreciation', appreciationRoutes);
 app.use('/api/copyright', copyrightRoutes);
 app.use('/api/dividend', dividendRoutes);
 app.use('/api/lottery', lotteryRoutes);
+console.log('[Server]   ✅ /api/lottery - 奖池路由');
+console.log('[Server] ✅ 所有 API 路由注册完成');
 
 // 错误处理中间件（必须放在最后）
 app.use(errorHandler);
@@ -78,10 +82,24 @@ app.use((req, res) => {
 
 // 启动服务器
 async function startServer() {
+  console.log('[Server] ========== 服务器启动 ==========');
+  console.log('[Server] 启动时间:', new Date().toISOString());
+  console.log('[Server] Node.js 版本:', process.version);
+  console.log('[Server] 环境变量检查:');
+  console.log('[Server]   - NODE_ENV:', process.env.NODE_ENV || '未设置');
+  console.log('[Server]   - PORT:', process.env.PORT || '3000 (默认)');
+  console.log('[Server]   - MONGODB_URI:', process.env.MONGODB_URI ? '已设置' : '未设置');
+  console.log('[Server]   - WECHAT_APPID:', process.env.WECHAT_APPID ? process.env.WECHAT_APPID.substring(0, 10) + '...' : '未设置');
+  console.log('[Server]   - WECHAT_SECRET:', process.env.WECHAT_SECRET ? '已设置' : '未设置');
+  console.log('[Server]   - JWT_SECRET:', process.env.JWT_SECRET ? '已设置 (长度: ' + process.env.JWT_SECRET.length + ')' : '未设置');
+  console.log('[Server]   - SSL_CERT_PATH:', process.env.SSL_CERT_PATH || '未设置');
+  console.log('[Server]   - SSL_KEY_PATH:', process.env.SSL_KEY_PATH || '未设置');
+  
   try {
     // 连接数据库
+    console.log('[Server] 正在连接数据库...');
     await connectDatabase();
-    console.log('[INFO] 数据库连接成功');
+    console.log('[Server] ✅ 数据库连接成功');
 
     const SSL_CERT_PATH = '/ssl/cert.pem';
     const SSL_KEY_PATH = '/ssl/cert.key';
