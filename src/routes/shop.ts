@@ -22,10 +22,15 @@ router.get('/', authenticate, async (req: AuthRequest, res: Response) => {
     // 构建查询条件
     const query: any = {};
 
-    // 系列筛选
+    // 系列筛选（支持 series 名称或 seriesId）
     const series = req.query.series as string;
-    if (series && series !== '全部系列') {
-      // 先查找系列ID
+    const seriesId = req.query.seriesId as string;
+    
+    if (seriesId) {
+      // 直接使用 seriesId
+      query.seriesId = seriesId;
+    } else if (series && series !== '全部系列') {
+      // 通过系列名称查找系列ID
       const seriesDoc = await Series.findOne({ name: series });
       if (seriesDoc) {
         query.seriesId = seriesDoc._id;

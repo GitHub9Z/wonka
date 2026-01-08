@@ -43,3 +43,4 @@ CopyrightFragmentSchema.index({ userId: 1, copyrightId: 1 }, { unique: true });
 export default mongoose.model<ICopyrightFragment>('CopyrightFragment', CopyrightFragmentSchema);
 
 
+

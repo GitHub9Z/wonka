@@ -9,7 +9,7 @@ import CopyrightFragment from '../models/CopyrightFragment';
 import Copyright from '../models/Copyright';
 import Series from '../models/Series';
 
-const NORMAL_BOX_COST = 100000; // 普通箱价格：10万馆币
+const NORMAL_BOX_COST = 100000; // 普通箱价格：10万金币
 
 /**
  * 开普通箱
@@ -168,5 +168,127 @@ export async function synthesizeShares(userId: string, copyrightId: string): Pro
   await share.save();
   
   return sharesToSynthesize;
+}
+
+/**
+ * 开免费盲盒（每日限领一个）
+ * @param userId 用户ID
+ * @returns 开箱结果
+ */
+export async function openFreeBox(userId: string): Promise<any> {
+  const user = await User.findById(userId);
+  if (!user) {
+    throw new Error('用户不存在');
+  }
+  
+  // 检查今日是否已领取
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const todayEnd = new Date(today);
+  todayEnd.setHours(23, 59, 59, 999);
+  
+  const todayBox = await Box.findOne({
+    userId,
+    boxType: 'free',
+    createdAt: {
+      $gte: today,
+      $lte: todayEnd
+    }
+  });
+  
+  if (todayBox) {
+    throw new Error('今日已领取免费盲盒');
+  }
+  
+  // 随机奖励（与普通箱相同的概率）
+  const random = Math.random();
+  let rewardType: 'coins' | 'fragment' | 'adCard';
+  let rewardValue: number;
+  let copyrightId = null;
+  
+  let galleryCoin = await GalleryCoin.findOne({ userId });
+  if (!galleryCoin) {
+    // 如果没有馆币记录，创建一个
+    galleryCoin = new GalleryCoin({ userId, coins: 0 });
+    await galleryCoin.save();
+  }
+  
+  if (random < 0.6) {
+    // 60% 概率：金币
+    rewardType = 'coins';
+    rewardValue = Math.floor(Math.random() * 50000 + 10000); // 1万-6万金币
+    galleryCoin.coins += rewardValue;
+    await galleryCoin.save();
+    user.galleryCoins = galleryCoin.coins;
+    await user.save();
+  } else if (random < 0.9) {
+    // 30% 概率：版权碎片
+    rewardType = 'fragment';
+    rewardValue = Math.floor(Math.random() * 5 + 1); // 1-5碎片
+    
+    // 随机选择一个版权
+    const copyrights = await Copyright.find();
+    if (copyrights.length > 0) {
+      const randomCopyright = copyrights[Math.floor(Math.random() * copyrights.length)];
+      copyrightId = randomCopyright._id;
+      
+      // 保存碎片
+      let fragment = await CopyrightFragment.findOne({ userId, copyrightId });
+      if (!fragment) {
+        fragment = new CopyrightFragment({ userId, copyrightId, fragments: 0 });
+      }
+      fragment.fragments += rewardValue;
+      await fragment.save();
+    }
+  } else {
+    // 10% 概率：广告卡
+    rewardType = 'adCard';
+    rewardValue = 1; // 1张广告卡（看广告额外开1次）
+  }
+  
+  // 记录开箱
+  const box = new Box({
+    userId,
+    boxType: 'free',
+    rewardType,
+    rewardValue,
+    copyrightId
+  });
+  await box.save();
+  
+  // 确保 galleryCoin 已保存
+  if (!galleryCoin) {
+    galleryCoin = await GalleryCoin.findOne({ userId });
+  }
+  
+  return {
+    rewardType,
+    rewardValue,
+    copyrightId,
+    remainingCoins: galleryCoin ? galleryCoin.coins : 0
+  };
+}
+
+/**
+ * 检查今日是否已领取免费盲盒
+ * @param userId 用户ID
+ * @returns 是否已领取
+ */
+export async function checkFreeBoxAvailable(userId: string): Promise<boolean> {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const todayEnd = new Date(today);
+  todayEnd.setHours(23, 59, 59, 999);
+  
+  const todayBox = await Box.findOne({
+    userId,
+    boxType: 'free',
+    createdAt: {
+      $gte: today,
+      $lte: todayEnd
+    }
+  });
+  
+  return !todayBox;
 }
 

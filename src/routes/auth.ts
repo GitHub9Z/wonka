@@ -3,7 +3,7 @@
  */
 
 import { Router, Request, Response } from 'express';
-import jwt from 'jsonwebtoken';
+import axios from 'axios';
 import User from '../models/User';
 import { generateToken } from '../utils/jwt';
 
@@ -37,11 +37,19 @@ router.post('/login', async (req: Request, res: Response) => {
     }
 
     // 调用微信接口获取 openId
-    const wechatResponse = await fetch(
-      `https://api.weixin.qq.com/sns/jscode2session?appid=${appId}&secret=${appSecret}&js_code=${code}&grant_type=authorization_code`
+    const wechatResponse = await axios.get(
+      `https://api.weixin.qq.com/sns/jscode2session`,
+      {
+        params: {
+          appid: appId,
+          secret: appSecret,
+          js_code: code,
+          grant_type: 'authorization_code'
+        }
+      }
     );
 
-    const wechatData = await wechatResponse.json();
+    const wechatData = wechatResponse.data;
 
     if (wechatData.errcode) {
       console.error('微信登录失败:', wechatData);
@@ -88,7 +96,16 @@ router.post('/login', async (req: Request, res: Response) => {
     }
 
     // 生成 token
-    const token = generateToken(user._id.toString());
+    const userId = user._id.toString();
+    const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
+    const token = generateToken(userId);
+    
+    console.log('[Auth] 登录成功，生成 token:', {
+      userId: userId,
+      tokenLength: token.length,
+      jwtSecretLength: JWT_SECRET.length,
+      jwtSecretPreview: JWT_SECRET.substring(0, 10) + '...'
+    });
 
     res.json({
       code: 200,
@@ -96,7 +113,7 @@ router.post('/login', async (req: Request, res: Response) => {
       data: {
         token,
         userInfo: {
-          id: user._id.toString(),
+          id: userId,
           nickname: user.nickname,
           avatar: user.avatar,
           coins: user.coins,

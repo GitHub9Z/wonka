@@ -62,3 +62,4 @@ AppreciationSchema.index({ targetUserId: 1, createdAt: -1 });
 export default mongoose.model<IAppreciation>('Appreciation', AppreciationSchema);
 
 
+

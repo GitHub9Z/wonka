@@ -112,6 +112,54 @@ router.post('/box/normal', async (req: AuthRequest, res: Response) => {
 });
 
 /**
+ * 开免费盲盒（每日限领一个）
+ */
+router.post('/box/free', async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user!.userId;
+    const result = await boxService.openFreeBox(userId);
+    
+    res.json({
+      code: 200,
+      message: '开箱成功',
+      data: result
+    });
+  } catch (error: any) {
+    console.error('开免费盲盒错误:', error);
+    res.status(500).json({
+      code: 500,
+      message: error.message || '开箱失败',
+      data: null
+    });
+  }
+});
+
+/**
+ * 检查免费盲盒是否可领取
+ */
+router.get('/box/free/status', async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user!.userId;
+    const available = await boxService.checkFreeBoxAvailable(userId);
+    
+    res.json({
+      code: 200,
+      message: '获取成功',
+      data: {
+        available
+      }
+    });
+  } catch (error: any) {
+    console.error('检查免费盲盒状态错误:', error);
+    res.status(500).json({
+      code: 500,
+      message: error.message || '获取失败',
+      data: null
+    });
+  }
+});
+
+/**
  * 开系列箱
  */
 router.post('/box/series', async (req: AuthRequest, res: Response) => {
@@ -210,5 +258,6 @@ router.get('/buffs', async (req: AuthRequest, res: Response) => {
 });
 
 export default router;
+
 
 

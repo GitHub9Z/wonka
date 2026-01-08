@@ -81,3 +81,4 @@ DividendSchema.index({ status: 1, settlementDate: 1 });
 export default mongoose.model<IDividend>('Dividend', DividendSchema);
 
 
+

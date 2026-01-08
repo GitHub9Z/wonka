@@ -27,10 +27,15 @@ export async function authenticate(
   res: Response,
   next: NextFunction
 ): Promise<void> {
+  let token: string | undefined;
   try {
-    const token = req.headers.authorization?.replace('Bearer ', '');
+    const authHeader = req.headers.authorization;
+    console.log('[Auth] 请求头 Authorization:', authHeader ? authHeader.substring(0, 30) + '...' : '无');
+    
+    token = authHeader?.replace('Bearer ', '');
 
     if (!token) {
+      console.error('[Auth] 未提供 token');
       res.status(401).json({
         code: 401,
         message: '未提供认证令牌',
@@ -40,7 +45,13 @@ export async function authenticate(
     }
 
     const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
+    console.log('[Auth] JWT_SECRET 长度:', JWT_SECRET.length);
+    console.log('[Auth] JWT_SECRET 前10字符:', JWT_SECRET.substring(0, 10));
+    console.log('[Auth] Token 长度:', token.length);
+    console.log('[Auth] Token 前20字符:', token.substring(0, 20));
+    
     const decoded = jwt.verify(token, JWT_SECRET) as { userId: string; role?: string };
+    console.log('[Auth] Token 解码成功, userId:', decoded.userId);
 
     // 检查是否为管理员
     if (decoded.role === 'admin') {
@@ -74,7 +85,13 @@ export async function authenticate(
       ...user.toObject()
     };
     next();
-  } catch (error) {
+  } catch (error: any) {
+    console.error('[Auth] Token 验证失败:', {
+      error: error.message,
+      name: error.name,
+      token: token ? token.substring(0, 20) + '...' : '无token'
+    });
+    
     res.status(401).json({
       code: 401,
       message: '认证令牌无效',

@@ -39,3 +39,4 @@ CollectionSchema.index({ userId: 1, artworkId: 1 }, { unique: true });
 export default mongoose.model<ICollection>('Collection', CollectionSchema);
 
 
+

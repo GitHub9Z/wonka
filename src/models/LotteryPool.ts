@@ -51,3 +51,4 @@ LotteryPoolSchema.index({ month: 1, isWinner: 1 });
 export default mongoose.model<ILotteryPool>('LotteryPool', LotteryPoolSchema);
 
 
+

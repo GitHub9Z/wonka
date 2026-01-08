@@ -57,3 +57,4 @@ UserBuffSchema.index({ userId: 1, seriesId: 1 }, { unique: true });
 export default mongoose.model<IUserBuff>('UserBuff', UserBuffSchema);
 
 
+

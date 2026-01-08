@@ -4,7 +4,7 @@
 
 import mongoose, { Document, Schema } from 'mongoose';
 
-export type BoxType = 'normal' | 'series'; // 普通箱、系列箱
+export type BoxType = 'normal' | 'series' | 'free'; // 普通箱、系列箱、免费盲盒
 export type BoxRewardType = 'coins' | 'fragment' | 'adCard' | 'buffCard' | 'coupon'; // 奖励类型
 
 export interface IBox extends Document {
@@ -27,7 +27,7 @@ const BoxSchema = new Schema<IBox>(
     },
     boxType: {
       type: String,
-      enum: ['normal', 'series'],
+      enum: ['normal', 'series', 'free'],
       required: true
     },
     rewardType: {
@@ -57,5 +57,6 @@ const BoxSchema = new Schema<IBox>(
 BoxSchema.index({ userId: 1, createdAt: -1 });
 
 export default mongoose.model<IBox>('Box', BoxSchema);
+
 
 
