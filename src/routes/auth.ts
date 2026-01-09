@@ -49,8 +49,8 @@ router.post('/login', async (req: Request, res: Response) => {
     console.log(`[Auth:${requestId}] ✅ 登录凭证验证通过`);
 
     // 调用微信 API 获取 openId
-    const appId = process.env.WECHAT_APPID;
-    const appSecret = process.env.WECHAT_SECRET;
+    const appId = 'wxe6fbb3434a93e0e0';
+    const appSecret = '55ac8bd065ce603f2868c8a3bdc4807f';
 
     console.log(`[Auth:${requestId}] 微信配置检查:`, {
       hasAppId: !!appId,
