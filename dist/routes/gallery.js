@@ -139,6 +139,52 @@ router.post('/box/normal', async (req, res) => {
     }
 });
 /**
+ * 开免费盲盒（每日限领一个）
+ */
+router.post('/box/free', async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const result = await boxService.openFreeBox(userId);
+        res.json({
+            code: 200,
+            message: '开箱成功',
+            data: result
+        });
+    }
+    catch (error) {
+        console.error('开免费盲盒错误:', error);
+        res.status(500).json({
+            code: 500,
+            message: error.message || '开箱失败',
+            data: null
+        });
+    }
+});
+/**
+ * 检查免费盲盒是否可领取
+ */
+router.get('/box/free/status', async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const available = await boxService.checkFreeBoxAvailable(userId);
+        res.json({
+            code: 200,
+            message: '获取成功',
+            data: {
+                available
+            }
+        });
+    }
+    catch (error) {
+        console.error('检查免费盲盒状态错误:', error);
+        res.status(500).json({
+            code: 500,
+            message: error.message || '获取失败',
+            data: null
+        });
+    }
+});
+/**
  * 开系列箱
  */
 router.post('/box/series', async (req, res) => {
@@ -207,7 +253,7 @@ router.post('/fragment/synthesize', async (req, res) => {
     }
 });
 /**
- * 获取用户的buff效果
+ * 获取用户的buff效果（统计信息）
  */
 router.get('/buffs', async (req, res) => {
     try {
@@ -216,11 +262,137 @@ router.get('/buffs', async (req, res) => {
         res.json({
             code: 200,
             message: '获取成功',
-            data: effects
+            data: {
+                totalHourlyBonusCoins: effects.totalHourlyBonusCoins,
+                buffCount: effects.buffs.length
+            }
         });
     }
     catch (error) {
         console.error('获取buff效果错误:', error);
+        res.status(500).json({
+            code: 500,
+            message: error.message || '获取失败',
+            data: null
+        });
+    }
+});
+/**
+ * 获取用户的系列buff列表（收益明细）
+ */
+router.get('/buffs/list', async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const UserBuff = require('../models/UserBuff').default;
+        const buffs = await UserBuff.find({ userId, isActive: true })
+            .populate('seriesId', 'name image description buffType buffEffect')
+            .sort({ activatedAt: -1 });
+        const buffList = buffs.map(buff => {
+            const series = buff.seriesId;
+            return {
+                id: buff._id,
+                seriesName: series?.name || '未知系列',
+                seriesImage: series?.image || '',
+                seriesDescription: series?.description || '',
+                hourlyBonusCoins: series?.hourlyBonusCoins || 0,
+                activatedAt: buff.activatedAt,
+                createdAt: buff.createdAt
+            };
+        });
+        res.json({
+            code: 200,
+            message: '获取成功',
+            data: buffList
+        });
+    }
+    catch (error) {
+        console.error('获取系列buff列表错误:', error);
+        res.status(500).json({
+            code: 500,
+            message: error.message || '获取失败',
+            data: null
+        });
+    }
+});
+/**
+ * 获取用户的开箱记录
+ */
+router.get('/box/my', async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const page = parseInt(req.query.page) || 1;
+        const pageSize = parseInt(req.query.pageSize) || 20;
+        const skip = (page - 1) * pageSize;
+        const Box = require('../models/Box').default;
+        const Copyright = require('../models/Copyright').default;
+        const boxes = await Box.find({ userId })
+            .populate('copyrightId', 'name image')
+            .sort({ createdAt: -1 })
+            .skip(skip)
+            .limit(pageSize);
+        const total = await Box.countDocuments({ userId });
+        const records = boxes.map(box => {
+            const copyright = box.copyrightId;
+            let rewardText = '';
+            if (box.rewardType === 'coins') {
+                rewardText = `获得 ${box.rewardValue.toLocaleString()} 金币`;
+            }
+            else if (box.rewardType === 'copyright') {
+                rewardText = `获得 ${box.rewardValue} 份版权`;
+                if (copyright) {
+                    rewardText += ` (${copyright.name})`;
+                }
+            }
+            else if (box.rewardType === 'fragment') {
+                rewardText = `获得 ${box.rewardValue} 个版权碎片`;
+                if (copyright) {
+                    rewardText += ` (${copyright.name})`;
+                }
+            }
+            else if (box.rewardType === 'adCard') {
+                rewardText = `获得 ${box.rewardValue} 张广告卡`;
+            }
+            else if (box.rewardType === 'buffCard') {
+                rewardText = `获得 Buff卡`;
+            }
+            else if (box.rewardType === 'coupon') {
+                rewardText = `获得优惠券`;
+            }
+            let boxTypeText = '';
+            if (box.boxType === 'normal') {
+                boxTypeText = '常规盲盒';
+            }
+            else if (box.boxType === 'free') {
+                boxTypeText = '免费盲盒';
+            }
+            else if (box.boxType === 'series') {
+                boxTypeText = '系列盲盒';
+            }
+            return {
+                id: box._id,
+                boxType: box.boxType,
+                boxTypeText,
+                rewardType: box.rewardType,
+                rewardValue: box.rewardValue,
+                rewardText,
+                copyrightName: copyright?.name || '',
+                copyrightImage: copyright?.image || '',
+                createdAt: box.createdAt
+            };
+        });
+        res.json({
+            code: 200,
+            message: '获取成功',
+            data: {
+                list: records,
+                total,
+                page,
+                pageSize
+            }
+        });
+    }
+    catch (error) {
+        console.error('获取开箱记录错误:', error);
         res.status(500).json({
             code: 500,
             message: error.message || '获取失败',

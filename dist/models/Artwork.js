@@ -64,6 +64,10 @@ const ArtworkSchema = new mongoose_1.Schema({
     artist: {
         type: String,
         required: true
+    },
+    seriesName: {
+        type: String,
+        index: true // 添加索引以提高查询性能
     }
 }, {
     timestamps: true

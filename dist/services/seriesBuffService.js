@@ -28,14 +28,14 @@ async function checkAndActivateBuff(userId, seriesId) {
         return true; // 已激活
     }
     // 检查用户是否集齐该系列的所有版权
+    // 注意：CopyrightShare是按份数存储的，每份一条记录
     const shares = await CopyrightShare_1.default.find({
         userId,
-        copyrightId: { $in: series.copyrightIds },
-        shares: { $gt: 0 }
+        copyrightId: { $in: series.copyrightIds }
     });
     const ownedCopyrightIds = new Set(shares.map(s => s.copyrightId.toString()));
     const requiredCopyrightIds = series.copyrightIds.map(id => id.toString());
-    // 检查是否集齐所有版权
+    // 检查是否集齐所有版权（每个版权至少持有1份）
     const isComplete = requiredCopyrightIds.every(id => ownedCopyrightIds.has(id));
     if (!isComplete) {
         return false; // 未集齐
@@ -50,8 +50,6 @@ async function checkAndActivateBuff(userId, seriesId) {
         const buff = new UserBuff_1.default({
             userId,
             seriesId,
-            buffType: series.buffType,
-            buffEffect: series.buffEffect,
             isActive: true
         });
         await buff.save();
@@ -69,26 +67,28 @@ async function checkAllSeriesBuffs(userId) {
     }
 }
 /**
- * 获取用户的buff效果
+ * 获取用户激活的系列buff列表
  * @param userId 用户ID
- * @returns buff效果统计
+ * @returns 激活的系列buff列表（包含每小时额外金币）
  */
 async function getUserBuffEffects(userId) {
-    const buffs = await UserBuff_1.default.find({ userId, isActive: true }).populate('seriesId');
-    let revenueBuffCount = 0;
-    let gameBuffCount = 0;
-    buffs.forEach(buff => {
-        if (buff.buffType === 'revenue') {
-            revenueBuffCount++;
-        }
-        else if (buff.buffType === 'game') {
-            gameBuffCount++;
-        }
+    const buffs = await UserBuff_1.default.find({ userId, isActive: true })
+        .populate('seriesId', 'name hourlyBonusCoins')
+        .sort({ activatedAt: -1 });
+    let totalHourlyBonusCoins = 0;
+    const buffList = buffs.map(buff => {
+        const series = buff.seriesId;
+        const hourlyBonusCoins = series?.hourlyBonusCoins || 0;
+        totalHourlyBonusCoins += hourlyBonusCoins;
+        return {
+            seriesId: series?._id?.toString() || '',
+            seriesName: series?.name || '未知系列',
+            hourlyBonusCoins,
+            activatedAt: buff.activatedAt
+        };
     });
     return {
-        revenueBuffCount,
-        gameBuffCount,
-        revenueDiscount: revenueBuffCount * 0.05, // 每个收益buff +5%
-        gameSpeedMultiplier: 1 + (gameBuffCount * 0.1) // 每个游戏buff +10%
+        buffs: buffList,
+        totalHourlyBonusCoins
     };
 }

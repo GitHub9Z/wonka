@@ -49,15 +49,6 @@ const UserBuffSchema = new mongoose_1.Schema({
         ref: 'Series',
         required: true
     },
-    buffType: {
-        type: String,
-        enum: ['revenue', 'game'],
-        required: true
-    },
-    buffEffect: {
-        type: String,
-        required: true
-    },
     isActive: {
         type: Boolean,
         default: true

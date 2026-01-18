@@ -103,15 +103,18 @@ export async function getUserLotteryRecords(userId: string): Promise<any[]> {
     .populate('copyrightId', 'name image')
     .sort({ month: -1 });
   
-  return records.map(r => ({
-    id: r._id,
-    copyrightName: r.copyrightId.name,
-    copyrightImage: r.copyrightId.image,
-    shares: r.shares,
-    month: r.month,
-    isWinner: r.isWinner,
-    createdAt: r.createdAt
-  }));
+  return records.map(r => {
+    const copyright = r.copyrightId as any;
+    return {
+      id: r._id,
+      copyrightName: copyright?.name || '未知版权',
+      copyrightImage: copyright?.image || '',
+      shares: r.shares,
+      month: r.month,
+      isWinner: r.isWinner,
+      createdAt: r.createdAt
+    };
+  });
 }
 
 

@@ -46,12 +46,12 @@ const BoxSchema = new mongoose_1.Schema({
     },
     boxType: {
         type: String,
-        enum: ['normal', 'series'],
+        enum: ['normal', 'series', 'free'],
         required: true
     },
     rewardType: {
         type: String,
-        enum: ['coins', 'fragment', 'adCard', 'buffCard', 'coupon'],
+        enum: ['coins', 'fragment', 'adCard', 'buffCard', 'coupon', 'copyright'],
         required: true
     },
     rewardValue: {

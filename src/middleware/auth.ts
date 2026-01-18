@@ -5,6 +5,7 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import User from '../models/User';
+import AccountUser from '../models/AccountUser';
 
 export interface AuthRequest extends Request {
   userId?: string;
@@ -65,25 +66,56 @@ export async function authenticate(
       return;
     }
 
-    // 普通用户认证
-    const user = await User.findById(decoded.userId);
+    // 普通用户认证：先从 User 表查找，如果找不到再从 AccountUser 表查找
+    let user = await User.findById(decoded.userId);
+    let accountUser = null;
+    let isAccountUser = false;
+
     if (!user) {
-      res.status(401).json({
-        code: 401,
-        message: '用户不存在',
-        data: null
-      });
-      return;
+      // 如果 User 表中找不到，尝试从 AccountUser 表查找
+      accountUser = await AccountUser.findById(decoded.userId);
+      if (!accountUser) {
+        res.status(401).json({
+          code: 401,
+          message: '用户不存在',
+          data: null
+        });
+        return;
+      }
+      isAccountUser = true;
     }
 
-    req.userId = decoded.userId;
-    req.user = {
-      userId: decoded.userId,
-      galleryCoins: user.galleryCoins || 0,
-      popularity: user.popularity || 0,
-      isMinor: user.isMinor || false,
-      ...user.toObject()
-    };
+    // 根据用户类型设置用户信息
+    if (isAccountUser && accountUser) {
+      const accountUserObj = accountUser.toObject();
+      req.userId = decoded.userId;
+      req.user = {
+        ...accountUserObj,
+        userId: decoded.userId, // 确保 userId 在最后，不会被覆盖
+        coins: accountUser.coins || 0,
+        level: accountUser.level || 1,
+        experience: accountUser.experience || 0,
+        galleryCoins: accountUser.galleryCoins || 0,
+        popularity: accountUser.popularity || 0,
+        isMinor: accountUser.isMinor || false,
+        userType: 'account' // 标识是账号用户
+      };
+    } else if (user) {
+      const userObj = user.toObject();
+      req.userId = decoded.userId;
+      req.user = {
+        ...userObj,
+        userId: decoded.userId, // 确保 userId 在最后，不会被覆盖
+        coins: user.coins || 0,
+        level: user.level || 1,
+        experience: user.experience || 0,
+        galleryCoins: user.galleryCoins || 0,
+        popularity: user.popularity || 0,
+        isMinor: user.isMinor || false,
+        userType: 'wechat' // 标识是微信用户
+      };
+    }
+    
     next();
   } catch (error: any) {
     console.error('[Auth] Token 验证失败:', {

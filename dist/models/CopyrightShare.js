@@ -1,6 +1,7 @@
 "use strict";
 /**
  * 版权份额模型（用户持有的版权份额）
+ * 按1份为单位存储，每个份额对应一个区块链hash
  */
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
@@ -50,15 +51,15 @@ const CopyrightShareSchema = new mongoose_1.Schema({
         required: true,
         index: true
     },
-    shares: {
-        type: Number,
+    blockchainHash: {
+        type: String,
         required: true,
-        min: 1
+        unique: true, // 每个区块链hash唯一
+        index: true
     },
     inLotteryPool: {
-        type: Number,
-        default: 0,
-        min: 0
+        type: Boolean,
+        default: false
     },
     lastGiftDate: {
         type: Date
@@ -72,6 +73,6 @@ const CopyrightShareSchema = new mongoose_1.Schema({
 }, {
     timestamps: true
 });
-// 唯一索引：一个用户对一个版权只能有一条记录
-CopyrightShareSchema.index({ userId: 1, copyrightId: 1 }, { unique: true });
+// 复合索引：用户和版权的组合查询
+CopyrightShareSchema.index({ userId: 1, copyrightId: 1 });
 exports.default = mongoose_1.default.model('CopyrightShare', CopyrightShareSchema);

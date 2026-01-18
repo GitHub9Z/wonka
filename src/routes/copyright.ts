@@ -78,11 +78,17 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
       }
     }
     
+    // 计算可用份额
+    const soldShares = copyright.soldShares || 0;
+    const totalShares = copyright.totalShares || 0;
+    const availableShares = Math.max(0, totalShares - soldShares);
+    
     res.json({
       code: 200,
       message: '获取成功',
       data: {
         ...copyright.toObject(),
+        availableShares,
         userShare,
         discount
       }

@@ -13,7 +13,6 @@ exports.batchPayDividends = batchPayDividends;
 exports.getUserDividends = getUserDividends;
 const CopyrightShare_1 = __importDefault(require("../models/CopyrightShare"));
 const Dividend_1 = __importDefault(require("../models/Dividend"));
-const UserBuff_1 = __importDefault(require("../models/UserBuff"));
 const User_1 = __importDefault(require("../models/User"));
 const DIVIDEND_RATE = 0.2; // 分红比例：20%
 const SETTLEMENT_DAY = 15; // 每月15日结算
@@ -25,9 +24,9 @@ const SETTLEMENT_DAY = 15; // 每月15日结算
  * @returns 分红金额
  */
 async function calculateDividend(userId, copyrightId, salesAmount) {
-    // 获取用户持有的份额
-    const share = await CopyrightShare_1.default.findOne({ userId, copyrightId });
-    if (!share || share.shares === 0) {
+    // 获取用户持有的份额数（每份一条记录）
+    const shareCount = await CopyrightShare_1.default.countDocuments({ userId, copyrightId });
+    if (shareCount === 0) {
         return 0;
     }
     // 获取版权总份额
@@ -37,11 +36,10 @@ async function calculateDividend(userId, copyrightId, salesAmount) {
         return 0;
     }
     // 计算基础分红（20%销售额按份额占比分配）
-    const baseDividend = (salesAmount * DIVIDEND_RATE * share.shares) / copyright.totalShares;
-    // 获取用户的收益buff（分红比例+5% * buff数量）
-    const buffs = await UserBuff_1.default.find({ userId, buffType: 'revenue', isActive: true });
-    const buffMultiplier = 1 + (buffs.length * 0.05);
-    return baseDividend * buffMultiplier;
+    const baseDividend = (salesAmount * DIVIDEND_RATE * shareCount) / copyright.totalShares;
+    // 注意：现在系列buff只影响每小时金币收益，不影响分红
+    // 分红直接使用基础分红，不再乘以buff倍数
+    return baseDividend;
 }
 /**
  * 结算分红（每月15日执行）
@@ -50,22 +48,30 @@ async function calculateDividend(userId, copyrightId, salesAmount) {
  * @param settlementDate 结算日期
  */
 async function settleDividend(copyrightId, salesAmount, settlementDate) {
-    // 获取所有持有该版权的用户
-    const shares = await CopyrightShare_1.default.find({ copyrightId, shares: { $gt: 0 } });
+    // 获取所有持有该版权的用户（按用户分组统计份额数）
+    const userShares = await CopyrightShare_1.default.aggregate([
+        { $match: { copyrightId } },
+        {
+            $group: {
+                _id: '$userId',
+                shareCount: { $sum: 1 }
+            }
+        }
+    ]);
     // 获取版权总份额
     const Copyright = require('../models/Copyright').default;
     const copyright = await Copyright.findById(copyrightId);
     if (!copyright) {
         return;
     }
-    for (const share of shares) {
-        const dividendAmount = await calculateDividend(share.userId.toString(), copyrightId, salesAmount);
+    for (const userShare of userShares) {
+        const dividendAmount = await calculateDividend(userShare._id.toString(), copyrightId, salesAmount);
         if (dividendAmount > 0) {
             const dividend = new Dividend_1.default({
-                userId: share.userId,
+                userId: userShare._id,
                 copyrightId,
                 amount: dividendAmount,
-                shares: share.shares,
+                shares: userShare.shareCount,
                 totalShares: copyright.totalShares,
                 salesAmount,
                 dividendRate: DIVIDEND_RATE,
@@ -115,14 +121,19 @@ async function getUserDividends(userId, limit = 20) {
         .populate('copyrightId', 'name image')
         .sort({ settlementDate: -1 })
         .limit(limit);
-    return dividends.map(d => ({
-        id: d._id,
-        copyrightName: d.copyrightId.name,
-        copyrightImage: d.copyrightId.image,
-        amount: d.amount,
-        shares: d.shares,
-        settlementDate: d.settlementDate,
-        status: d.status,
-        paidAt: d.paidAt
-    }));
+    return dividends.map(d => {
+        const copyright = d.copyrightId;
+        return {
+            id: d._id,
+            copyrightName: copyright?.name || '未知版权',
+            copyrightImage: copyright?.image || '',
+            amount: d.amount,
+            shares: d.shares,
+            totalShares: d.totalShares,
+            salesAmount: d.salesAmount,
+            settlementDate: d.settlementDate,
+            status: d.status,
+            paidAt: d.paidAt
+        };
+    });
 }

@@ -8,7 +8,7 @@ export interface IUser extends Document {
   openId: string;
   nickname: string;
   avatar: string;
-  coins: number; // 金币（保留兼容）
+  coins: number; // WTC（保留兼容）
   galleryCoins: number; // 馆币
   level: number;
   experience: number;

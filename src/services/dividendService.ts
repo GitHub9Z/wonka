@@ -22,9 +22,9 @@ export async function calculateDividend(
   copyrightId: string,
   salesAmount: number
 ): Promise<number> {
-  // 获取用户持有的份额
-  const share = await CopyrightShare.findOne({ userId, copyrightId });
-  if (!share || share.shares === 0) {
+  // 获取用户持有的份额数（每份一条记录）
+  const shareCount = await CopyrightShare.countDocuments({ userId, copyrightId });
+  if (shareCount === 0) {
     return 0;
   }
   
@@ -36,13 +36,12 @@ export async function calculateDividend(
   }
   
   // 计算基础分红（20%销售额按份额占比分配）
-  const baseDividend = (salesAmount * DIVIDEND_RATE * share.shares) / copyright.totalShares;
+  const baseDividend = (salesAmount * DIVIDEND_RATE * shareCount) / copyright.totalShares;
   
-  // 获取用户的收益buff（分红比例+5% * buff数量）
-  const buffs = await UserBuff.find({ userId, buffType: 'revenue', isActive: true });
-  const buffMultiplier = 1 + (buffs.length * 0.05);
+  // 注意：现在系列buff只影响每小时WTC收益，不影响分红
+  // 分红直接使用基础分红，不再乘以buff倍数
   
-  return baseDividend * buffMultiplier;
+  return baseDividend;
 }
 
 /**
@@ -56,8 +55,16 @@ export async function settleDividend(
   salesAmount: number,
   settlementDate: Date
 ): Promise<void> {
-  // 获取所有持有该版权的用户
-  const shares = await CopyrightShare.find({ copyrightId, shares: { $gt: 0 } });
+  // 获取所有持有该版权的用户（按用户分组统计份额数）
+  const userShares = await CopyrightShare.aggregate([
+    { $match: { copyrightId } },
+    {
+      $group: {
+        _id: '$userId',
+        shareCount: { $sum: 1 }
+      }
+    }
+  ]);
   
   // 获取版权总份额
   const Copyright = require('../models/Copyright').default;
@@ -66,19 +73,19 @@ export async function settleDividend(
     return;
   }
   
-  for (const share of shares) {
+  for (const userShare of userShares) {
     const dividendAmount = await calculateDividend(
-      share.userId.toString(),
+      userShare._id.toString(),
       copyrightId,
       salesAmount
     );
     
     if (dividendAmount > 0) {
       const dividend = new Dividend({
-        userId: share.userId,
+        userId: userShare._id,
         copyrightId,
         amount: dividendAmount,
-        shares: share.shares,
+        shares: userShare.shareCount,
         totalShares: copyright.totalShares,
         salesAmount,
         dividendRate: DIVIDEND_RATE,
@@ -136,16 +143,21 @@ export async function getUserDividends(userId: string, limit: number = 20): Prom
     .sort({ settlementDate: -1 })
     .limit(limit);
   
-  return dividends.map(d => ({
-    id: d._id,
-    copyrightName: d.copyrightId.name,
-    copyrightImage: d.copyrightId.image,
-    amount: d.amount,
-    shares: d.shares,
-    settlementDate: d.settlementDate,
-    status: d.status,
-    paidAt: d.paidAt
-  }));
+  return dividends.map(d => {
+    const copyright = d.copyrightId as any;
+    return {
+      id: d._id,
+      copyrightName: copyright?.name || '未知版权',
+      copyrightImage: copyright?.image || '',
+      amount: d.amount,
+      shares: d.shares,
+      totalShares: d.totalShares,
+      salesAmount: d.salesAmount,
+      settlementDate: d.settlementDate,
+      status: d.status,
+      paidAt: d.paidAt
+    };
+  });
 }
 
 

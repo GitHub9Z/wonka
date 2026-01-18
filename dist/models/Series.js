@@ -54,14 +54,11 @@ const SeriesSchema = new mongoose_1.Schema({
             type: mongoose_1.Schema.Types.ObjectId,
             ref: 'Copyright'
         }],
-    buffType: {
-        type: String,
-        enum: ['revenue', 'game'],
-        required: true
-    },
-    buffEffect: {
-        type: String,
-        required: true
+    hourlyBonusCoins: {
+        type: Number,
+        required: true,
+        default: 0,
+        min: 0
     }
 }, {
     timestamps: true

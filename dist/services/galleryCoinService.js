@@ -22,33 +22,33 @@ const MAX_OFFLINE_HOURS = 12; // 离线最多累计12小时
  * @returns 应得的馆币数量
  */
 async function calculateCoins(userId) {
-    // 获取用户持有的版权份额
-    const shares = await CopyrightShare_1.default.find({ userId }).populate('copyrightId');
+    // 获取用户持有的版权份额（每份一条记录）
+    const shares = await CopyrightShare_1.default.find({ userId });
     // 统计不同版权的数量
     const copyrightSet = new Set();
     shares.forEach(share => {
-        if (share.shares > 0) {
-            copyrightSet.add(share.copyrightId.toString());
-        }
+        copyrightSet.add(share.copyrightId.toString());
     });
     const differentCopyrights = copyrightSet.size;
     // 如果不足5份不同版权，不产币
     if (differentCopyrights < MIN_DIFFERENT_COPYRIGHTS) {
         return 0;
     }
-    // 计算基础产币速度（每5份不同版权每小时10000馆币）
+    // 计算基础产币速度（每5份不同版权每小时10000金币）
     const baseCoinsPerHour = Math.floor(differentCopyrights / MIN_DIFFERENT_COPYRIGHTS) * COINS_PER_HOUR;
-    // 获取用户的游戏buff（产币速度+10%）
-    const gameBuffs = await UserBuff_1.default.find({
+    // 获取用户激活的系列buff，累加每小时额外金币
+    const activeBuffs = await UserBuff_1.default.find({
         userId,
-        buffType: 'game',
         isActive: true
+    }).populate('seriesId', 'hourlyBonusCoins');
+    let totalBonusCoins = 0;
+    activeBuffs.forEach(buff => {
+        const series = buff.seriesId;
+        if (series && series.hourlyBonusCoins) {
+            totalBonusCoins += series.hourlyBonusCoins;
+        }
     });
-    let buffMultiplier = 1;
-    gameBuffs.forEach(() => {
-        buffMultiplier += 0.1; // 每个游戏buff +10%
-    });
-    return Math.floor(baseCoinsPerHour * buffMultiplier);
+    return baseCoinsPerHour + totalBonusCoins;
 }
 /**
  * 领取挂机收益

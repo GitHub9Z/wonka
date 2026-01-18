@@ -9,13 +9,15 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.openNormalBox = openNormalBox;
 exports.openSeriesBox = openSeriesBox;
 exports.synthesizeShares = synthesizeShares;
+exports.openFreeBox = openFreeBox;
+exports.checkFreeBoxAvailable = checkFreeBoxAvailable;
 const User_1 = __importDefault(require("../models/User"));
 const GalleryCoin_1 = __importDefault(require("../models/GalleryCoin"));
 const Box_1 = __importDefault(require("../models/Box"));
 const CopyrightFragment_1 = __importDefault(require("../models/CopyrightFragment"));
 const Copyright_1 = __importDefault(require("../models/Copyright"));
 const Series_1 = __importDefault(require("../models/Series"));
-const NORMAL_BOX_COST = 100000; // 普通箱价格：10万馆币
+const NORMAL_BOX_COST = 100000; // 普通箱价格：10万金币
 /**
  * 开普通箱
  * @param userId 用户ID
@@ -35,42 +37,64 @@ async function openNormalBox(userId) {
     await galleryCoin.save();
     user.galleryCoins = galleryCoin.coins;
     await user.save();
-    // 随机奖励
+    // 随机奖励：只出金币或版权份额
     const random = Math.random();
     let rewardType;
     let rewardValue;
     let copyrightId = null;
-    if (random < 0.6) {
-        // 60% 概率：馆币
+    if (random < 0.7) {
+        // 70% 概率：金币
         rewardType = 'coins';
-        rewardValue = Math.floor(Math.random() * 50000 + 10000); // 1万-6万馆币
+        rewardValue = Math.floor(Math.random() * 50000 + 10000); // 1万-6万金币
+        console.log(`[BoxService] 开普通箱获得金币: ${rewardValue}, 当前金币: ${galleryCoin.coins}`);
         galleryCoin.coins += rewardValue;
         await galleryCoin.save();
+        console.log(`[BoxService] 更新后金币: ${galleryCoin.coins}`);
         user.galleryCoins = galleryCoin.coins;
         await user.save();
-    }
-    else if (random < 0.9) {
-        // 30% 概率：版权碎片
-        rewardType = 'fragment';
-        rewardValue = Math.floor(Math.random() * 5 + 1); // 1-5碎片
-        // 随机选择一个版权
-        const copyrights = await Copyright_1.default.find();
-        if (copyrights.length > 0) {
-            const randomCopyright = copyrights[Math.floor(Math.random() * copyrights.length)];
-            copyrightId = randomCopyright._id;
-            // 保存碎片
-            let fragment = await CopyrightFragment_1.default.findOne({ userId, copyrightId });
-            if (!fragment) {
-                fragment = new CopyrightFragment_1.default({ userId, copyrightId, fragments: 0 });
-            }
-            fragment.fragments += rewardValue;
-            await fragment.save();
-        }
+        console.log(`[BoxService] 用户金币已更新: ${user.galleryCoins}`);
     }
     else {
-        // 10% 概率：广告卡
-        rewardType = 'adCard';
-        rewardValue = 1; // 1张广告卡（看广告额外开1次）
+        // 30% 概率：版权份额（直接获得1份）
+        rewardType = 'copyright';
+        rewardValue = 1; // 1份版权
+        // 随机选择一个版权（只选择还有可售份额的）
+        const copyrights = await Copyright_1.default.find();
+        const availableCopyrights = copyrights.filter(c => {
+            const available = c.totalShares - (c.soldShares || 0);
+            return available > 0;
+        });
+        if (availableCopyrights.length > 0) {
+            const randomCopyright = availableCopyrights[Math.floor(Math.random() * availableCopyrights.length)];
+            copyrightId = randomCopyright._id;
+            // 创建版权份额（每份一条记录）
+            const CopyrightShare = require('../models/CopyrightShare').default;
+            for (let i = 0; i < rewardValue; i++) {
+                await CopyrightShare.create({
+                    userId,
+                    copyrightId,
+                    blockchainHash: `0x${Math.random().toString(16).substr(2, 64)}`,
+                    inLotteryPool: false,
+                    giftCount: 0
+                });
+            }
+            // 更新版权已售份额
+            await Copyright_1.default.findByIdAndUpdate(copyrightId, {
+                $inc: { soldShares: rewardValue }
+            });
+            console.log(`[BoxService] 开普通箱获得版权份额: ${randomCopyright.name} x${rewardValue}, copyrightId: ${copyrightId}`);
+        }
+        else {
+            // 如果所有版权都已售罄，改为金币奖励
+            rewardType = 'coins';
+            rewardValue = Math.floor(Math.random() * 50000 + 10000);
+            galleryCoin.coins += rewardValue;
+            await galleryCoin.save();
+            user.galleryCoins = galleryCoin.coins;
+            await user.save();
+            copyrightId = null;
+            console.log(`[BoxService] 所有版权已售罄，改为金币奖励: ${rewardValue}`);
+        }
     }
     // 记录开箱
     const box = new Box_1.default({
@@ -81,11 +105,23 @@ async function openNormalBox(userId) {
         copyrightId
     });
     await box.save();
+    console.log(`[BoxService] 开箱记录已保存，boxId: ${box._id}`);
+    // 确保获取最新的金币值
+    const finalGalleryCoin = await GalleryCoin_1.default.findOne({ userId });
+    const finalUser = await User_1.default.findById(userId);
+    const finalCoins = finalGalleryCoin ? finalGalleryCoin.coins : galleryCoin.coins;
+    // 确保User模型和GalleryCoin模型同步
+    if (finalUser && finalGalleryCoin) {
+        finalUser.galleryCoins = finalGalleryCoin.coins;
+        await finalUser.save();
+    }
+    console.log(`[BoxService] 最终返回金币: ${finalCoins}`);
+    console.log(`[BoxService] User模型金币: ${finalUser?.galleryCoins}, GalleryCoin模型金币: ${finalGalleryCoin?.coins}`);
     return {
         rewardType,
         rewardValue,
         copyrightId,
-        remainingCoins: galleryCoin.coins
+        remainingCoins: finalCoins
     };
 }
 /**
@@ -148,13 +184,113 @@ async function synthesizeShares(userId, copyrightId) {
     const sharesToSynthesize = Math.floor(fragment.fragments / 10);
     fragment.fragments -= sharesToSynthesize * 10;
     await fragment.save();
-    // 增加版权份额
+    // 增加版权份额（每份一条记录）
     const CopyrightShare = require('../models/CopyrightShare').default;
-    let share = await CopyrightShare.findOne({ userId, copyrightId });
-    if (!share) {
-        share = new CopyrightShare({ userId, copyrightId, shares: 0 });
+    for (let i = 0; i < sharesToSynthesize; i++) {
+        await CopyrightShare.create({
+            userId,
+            copyrightId,
+            blockchainHash: `0x${Math.random().toString(16).substr(2, 64)}`,
+            inLotteryPool: false,
+            giftCount: 0
+        });
     }
-    share.shares += sharesToSynthesize;
-    await share.save();
+    // 更新版权已售份额
+    await Copyright_1.default.findByIdAndUpdate(copyrightId, {
+        $inc: { soldShares: sharesToSynthesize }
+    });
     return sharesToSynthesize;
+}
+/**
+ * 开免费盲盒（每日限领一个）
+ * @param userId 用户ID
+ * @returns 开箱结果
+ */
+async function openFreeBox(userId) {
+    const user = await User_1.default.findById(userId);
+    if (!user) {
+        throw new Error('用户不存在');
+    }
+    // 检查今日是否已领取
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayEnd = new Date(today);
+    todayEnd.setHours(23, 59, 59, 999);
+    const todayBox = await Box_1.default.findOne({
+        userId,
+        boxType: 'free',
+        createdAt: {
+            $gte: today,
+            $lte: todayEnd
+        }
+    });
+    if (todayBox) {
+        throw new Error('今日已领取免费盲盒');
+    }
+    // 免费盲盒：只出金币
+    let rewardType = 'coins';
+    let rewardValue;
+    let copyrightId = null;
+    let galleryCoin = await GalleryCoin_1.default.findOne({ userId });
+    if (!galleryCoin) {
+        // 如果没有馆币记录，创建一个
+        galleryCoin = new GalleryCoin_1.default({ userId, coins: 0 });
+        await galleryCoin.save();
+    }
+    // 100% 概率：金币
+    rewardValue = Math.floor(Math.random() * 50000 + 10000); // 1万-6万金币
+    console.log(`[BoxService] 开免费盲盒获得金币: ${rewardValue}, 当前金币: ${galleryCoin.coins}`);
+    galleryCoin.coins += rewardValue;
+    await galleryCoin.save();
+    console.log(`[BoxService] 更新后金币: ${galleryCoin.coins}`);
+    user.galleryCoins = galleryCoin.coins;
+    await user.save();
+    console.log(`[BoxService] 用户金币已更新: ${user.galleryCoins}`);
+    // 记录开箱
+    const box = new Box_1.default({
+        userId,
+        boxType: 'free',
+        rewardType,
+        rewardValue,
+        copyrightId
+    });
+    await box.save();
+    console.log(`[BoxService] 免费盲盒记录已保存，boxId: ${box._id}`);
+    // 确保获取最新的金币值
+    const finalGalleryCoin = await GalleryCoin_1.default.findOne({ userId });
+    const finalUser = await User_1.default.findById(userId);
+    const finalCoins = finalGalleryCoin ? finalGalleryCoin.coins : (galleryCoin ? galleryCoin.coins : 0);
+    // 确保User模型和GalleryCoin模型同步
+    if (finalUser && finalGalleryCoin) {
+        finalUser.galleryCoins = finalGalleryCoin.coins;
+        await finalUser.save();
+    }
+    console.log(`[BoxService] 免费盲盒最终返回金币: ${finalCoins}`);
+    console.log(`[BoxService] User模型金币: ${finalUser?.galleryCoins}, GalleryCoin模型金币: ${finalGalleryCoin?.coins}`);
+    return {
+        rewardType,
+        rewardValue,
+        copyrightId,
+        remainingCoins: finalCoins
+    };
+}
+/**
+ * 检查今日是否已领取免费盲盒
+ * @param userId 用户ID
+ * @returns 是否已领取
+ */
+async function checkFreeBoxAvailable(userId) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayEnd = new Date(today);
+    todayEnd.setHours(23, 59, 59, 999);
+    const todayBox = await Box_1.default.findOne({
+        userId,
+        boxType: 'free',
+        createdAt: {
+            $gte: today,
+            $lte: todayEnd
+        }
+    });
+    return !todayBox;
 }

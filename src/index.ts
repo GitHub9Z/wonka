@@ -23,6 +23,8 @@ import copyrightRoutes from './routes/copyright';
 import dividendRoutes from './routes/dividend';
 import lotteryRoutes from './routes/lottery';
 import adminAuthRoutes from './routes/adminAuth';
+import aiRoutes from './routes/ai';
+import accountAuthRoutes from './routes/accountAuth';
 
 // 加载环境变量
 dotenv.config();
@@ -65,7 +67,11 @@ app.use('/api/appreciation', appreciationRoutes);
 app.use('/api/copyright', copyrightRoutes);
 app.use('/api/dividend', dividendRoutes);
 app.use('/api/lottery', lotteryRoutes);
+app.use('/api/ai', aiRoutes);
+app.use('/api/account-auth', accountAuthRoutes);
 console.log('[Server]   ✅ /api/lottery - 奖池路由');
+console.log('[Server]   ✅ /api/ai - AI 聊天路由');
+console.log('[Server]   ✅ /api/account-auth - 账号认证路由');
 console.log('[Server] ✅ 所有 API 路由注册完成');
 
 // 错误处理中间件（必须放在最后）
@@ -92,6 +98,7 @@ async function startServer() {
   console.log('[Server]   - WECHAT_APPID:', process.env.WECHAT_APPID ? process.env.WECHAT_APPID.substring(0, 10) + '...' : '未设置');
   console.log('[Server]   - WECHAT_SECRET:', process.env.WECHAT_SECRET ? '已设置' : '未设置');
   console.log('[Server]   - JWT_SECRET:', process.env.JWT_SECRET ? '已设置 (长度: ' + process.env.JWT_SECRET.length + ')' : '未设置');
+  console.log('[Server]   - DEEPSEEK_API_KEY:', process.env.DEEPSEEK_API_KEY ? '已设置' : '未设置（使用默认值）');
   console.log('[Server]   - SSL_CERT_PATH:', process.env.SSL_CERT_PATH || '未设置');
   console.log('[Server]   - SSL_KEY_PATH:', process.env.SSL_KEY_PATH || '未设置');
   

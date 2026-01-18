@@ -6,6 +6,7 @@ import { Router, Request, Response } from 'express';
 import Copyright from '../models/Copyright';
 import CopyrightShare from '../models/CopyrightShare';
 import Series from '../models/Series';
+import User from '../models/User';
 import { authenticate, AuthRequest } from '../middleware/auth';
 
 const router = Router();
@@ -163,20 +164,31 @@ router.post('/purchase', authenticate, async (req: AuthRequest, res: Response) =
       });
     }
 
-    // 检查金币是否足够
+    // 检查WTC是否足够
     const totalPrice = copyright.price * shareCount;
-    const user = req.user;
-    if (user.coins < totalPrice) {
+    const userInfo = req.user;
+    if (!userInfo || !userInfo.coins || userInfo.coins < totalPrice) {
       return res.status(400).json({
         code: 400,
-        message: '金币不足',
+        message: 'WTC不足',
         data: null
       });
     }
 
-    // 扣除金币
-    user.coins -= totalPrice;
-    await user.save();
+    // 扣除WTC（使用 findByIdAndUpdate 确保原子操作）
+    const updatedUser = await User.findByIdAndUpdate(
+      req.userId,
+      { $inc: { coins: -totalPrice } },
+      { new: true }
+    );
+
+    if (!updatedUser) {
+      return res.status(404).json({
+        code: 404,
+        message: '用户不存在',
+        data: null
+      });
+    }
 
     // 创建版权份额记录（每份一条记录）
     const shareRecords = [];
@@ -208,7 +220,7 @@ router.post('/purchase', authenticate, async (req: AuthRequest, res: Response) =
       message: '购买成功',
       data: {
         copyright: copyrightData,
-        remainingCoins: user.coins,
+        remainingCoins: updatedUser.coins,
         shareCount
       }
     });

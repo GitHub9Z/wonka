@@ -9,7 +9,7 @@ import CopyrightFragment from '../models/CopyrightFragment';
 import Copyright from '../models/Copyright';
 import Series from '../models/Series';
 
-const NORMAL_BOX_COST = 100000; // 普通箱价格：10万金币
+const NORMAL_BOX_COST = 100000; // 普通箱价格：10万WTC
 
 /**
  * 开普通箱
@@ -33,43 +33,70 @@ export async function openNormalBox(userId: string): Promise<any> {
   user.galleryCoins = galleryCoin.coins;
   await user.save();
   
-  // 随机奖励
+  // 随机奖励：只出WTC或版权份额
   const random = Math.random();
-  let rewardType: 'coins' | 'fragment' | 'adCard';
+  let rewardType: 'coins' | 'copyright';
   let rewardValue: number;
   let copyrightId = null;
   
-  if (random < 0.6) {
-    // 60% 概率：馆币
+  if (random < 0.7) {
+    // 70% 概率：WTC
     rewardType = 'coins';
-    rewardValue = Math.floor(Math.random() * 50000 + 10000); // 1万-6万馆币
+    rewardValue = Math.floor(Math.random() * 50000 + 10000); // 1万-6万WTC
+    console.log(`[BoxService] 开普通箱获得WTC: ${rewardValue}, 当前WTC: ${galleryCoin.coins}`);
     galleryCoin.coins += rewardValue;
     await galleryCoin.save();
+    console.log(`[BoxService] 更新后WTC: ${galleryCoin.coins}`);
     user.galleryCoins = galleryCoin.coins;
+    user.coins = galleryCoin.coins; // 同时更新个人账户的coins字段
     await user.save();
-  } else if (random < 0.9) {
-    // 30% 概率：版权碎片
-    rewardType = 'fragment';
-    rewardValue = Math.floor(Math.random() * 5 + 1); // 1-5碎片
+    console.log(`[BoxService] 用户WTC已更新: galleryCoins=${user.galleryCoins}, coins=${user.coins}`);
+  } else {
+    // 30% 概率：版权份额（直接获得1份）
+    rewardType = 'copyright';
+    rewardValue = 1; // 1份版权
     
-    // 随机选择一个版权
+    // 随机选择一个版权（只选择还有可售份额的）
     const copyrights = await Copyright.find();
-    if (copyrights.length > 0) {
-      const randomCopyright = copyrights[Math.floor(Math.random() * copyrights.length)];
+    const availableCopyrights = copyrights.filter(c => {
+      const available = c.totalShares - (c.soldShares || 0);
+      return available > 0;
+    });
+    
+    if (availableCopyrights.length > 0) {
+      const randomCopyright = availableCopyrights[Math.floor(Math.random() * availableCopyrights.length)];
       copyrightId = randomCopyright._id;
       
-      // 保存碎片
-      let fragment = await CopyrightFragment.findOne({ userId, copyrightId });
-      if (!fragment) {
-        fragment = new CopyrightFragment({ userId, copyrightId, fragments: 0 });
+      // 创建版权份额（每份一条记录）
+      const CopyrightShare = require('../models/CopyrightShare').default;
+      for (let i = 0; i < rewardValue; i++) {
+        await CopyrightShare.create({
+          userId,
+          copyrightId,
+          blockchainHash: `0x${Math.random().toString(16).substr(2, 64)}`,
+          inLotteryPool: false,
+          giftCount: 0
+        });
       }
-      fragment.fragments += rewardValue;
-      await fragment.save();
+      
+      // 更新版权已售份额
+      await Copyright.findByIdAndUpdate(copyrightId, {
+        $inc: { soldShares: rewardValue }
+      });
+      
+      console.log(`[BoxService] 开普通箱获得版权份额: ${randomCopyright.name} x${rewardValue}, copyrightId: ${copyrightId}`);
+    } else {
+      // 如果所有版权都已售罄，改为WTC奖励
+      rewardType = 'coins';
+      rewardValue = Math.floor(Math.random() * 50000 + 10000);
+      galleryCoin.coins += rewardValue;
+      await galleryCoin.save();
+      user.galleryCoins = galleryCoin.coins;
+      user.coins = galleryCoin.coins; // 同时更新个人账户的coins字段
+      await user.save();
+      copyrightId = null;
+      console.log(`[BoxService] 所有版权已售罄，改为WTC奖励: ${rewardValue}`);
     }
-  } else {
-    // 10% 概率：广告卡
-    rewardType = 'adCard';
-    rewardValue = 1; // 1张广告卡（看广告额外开1次）
   }
   
   // 记录开箱
@@ -81,12 +108,28 @@ export async function openNormalBox(userId: string): Promise<any> {
     copyrightId
   });
   await box.save();
+  console.log(`[BoxService] 开箱记录已保存，boxId: ${box._id}`);
+  
+  // 确保获取最新的WTC值
+  const finalGalleryCoin = await GalleryCoin.findOne({ userId });
+  const finalUser = await User.findById(userId);
+  const finalCoins = finalGalleryCoin ? finalGalleryCoin.coins : galleryCoin.coins;
+  
+  // 确保User模型和GalleryCoin模型同步
+  if (finalUser && finalGalleryCoin) {
+    finalUser.galleryCoins = finalGalleryCoin.coins;
+    finalUser.coins = finalGalleryCoin.coins; // 同时更新个人账户的coins字段
+    await finalUser.save();
+  }
+  
+  console.log(`[BoxService] 最终返回WTC: ${finalCoins}`);
+  console.log(`[BoxService] User模型WTC: galleryCoins=${finalUser?.galleryCoins}, coins=${finalUser?.coins}, GalleryCoin模型WTC: ${finalGalleryCoin?.coins}`);
   
   return {
     rewardType,
     rewardValue,
     copyrightId,
-    remainingCoins: galleryCoin.coins
+    remainingCoins: finalCoins
   };
 }
 
@@ -158,14 +201,22 @@ export async function synthesizeShares(userId: string, copyrightId: string): Pro
   fragment.fragments -= sharesToSynthesize * 10;
   await fragment.save();
   
-  // 增加版权份额
+  // 增加版权份额（每份一条记录）
   const CopyrightShare = require('../models/CopyrightShare').default;
-  let share = await CopyrightShare.findOne({ userId, copyrightId });
-  if (!share) {
-    share = new CopyrightShare({ userId, copyrightId, shares: 0 });
+  for (let i = 0; i < sharesToSynthesize; i++) {
+    await CopyrightShare.create({
+      userId,
+      copyrightId,
+      blockchainHash: `0x${Math.random().toString(16).substr(2, 64)}`,
+      inLotteryPool: false,
+      giftCount: 0
+    });
   }
-  share.shares += sharesToSynthesize;
-  await share.save();
+  
+  // 更新版权已售份额
+  await Copyright.findByIdAndUpdate(copyrightId, {
+    $inc: { soldShares: sharesToSynthesize }
+  });
   
   return sharesToSynthesize;
 }
@@ -200,9 +251,8 @@ export async function openFreeBox(userId: string): Promise<any> {
     throw new Error('今日已领取免费盲盒');
   }
   
-  // 随机奖励（与普通箱相同的概率）
-  const random = Math.random();
-  let rewardType: 'coins' | 'fragment' | 'adCard';
+  // 免费盲盒：只出WTC
+  let rewardType: 'coins' = 'coins';
   let rewardValue: number;
   let copyrightId = null;
   
@@ -213,38 +263,16 @@ export async function openFreeBox(userId: string): Promise<any> {
     await galleryCoin.save();
   }
   
-  if (random < 0.6) {
-    // 60% 概率：金币
-    rewardType = 'coins';
-    rewardValue = Math.floor(Math.random() * 50000 + 10000); // 1万-6万金币
-    galleryCoin.coins += rewardValue;
-    await galleryCoin.save();
-    user.galleryCoins = galleryCoin.coins;
-    await user.save();
-  } else if (random < 0.9) {
-    // 30% 概率：版权碎片
-    rewardType = 'fragment';
-    rewardValue = Math.floor(Math.random() * 5 + 1); // 1-5碎片
-    
-    // 随机选择一个版权
-    const copyrights = await Copyright.find();
-    if (copyrights.length > 0) {
-      const randomCopyright = copyrights[Math.floor(Math.random() * copyrights.length)];
-      copyrightId = randomCopyright._id;
-      
-      // 保存碎片
-      let fragment = await CopyrightFragment.findOne({ userId, copyrightId });
-      if (!fragment) {
-        fragment = new CopyrightFragment({ userId, copyrightId, fragments: 0 });
-      }
-      fragment.fragments += rewardValue;
-      await fragment.save();
-    }
-  } else {
-    // 10% 概率：广告卡
-    rewardType = 'adCard';
-    rewardValue = 1; // 1张广告卡（看广告额外开1次）
-  }
+  // 100% 概率：WTC
+  rewardValue = Math.floor(Math.random() * 50000 + 10000); // 1万-6万WTC
+  console.log(`[BoxService] 开免费盲盒获得WTC: ${rewardValue}, 当前WTC: ${galleryCoin.coins}`);
+  galleryCoin.coins += rewardValue;
+  await galleryCoin.save();
+  console.log(`[BoxService] 更新后WTC: ${galleryCoin.coins}`);
+  user.galleryCoins = galleryCoin.coins;
+  user.coins = galleryCoin.coins; // 同时更新个人账户的coins字段
+  await user.save();
+  console.log(`[BoxService] 用户WTC已更新: galleryCoins=${user.galleryCoins}, coins=${user.coins}`);
   
   // 记录开箱
   const box = new Box({
@@ -255,17 +283,28 @@ export async function openFreeBox(userId: string): Promise<any> {
     copyrightId
   });
   await box.save();
+  console.log(`[BoxService] 免费盲盒记录已保存，boxId: ${box._id}`);
   
-  // 确保 galleryCoin 已保存
-  if (!galleryCoin) {
-    galleryCoin = await GalleryCoin.findOne({ userId });
+  // 确保获取最新的WTC值
+  const finalGalleryCoin = await GalleryCoin.findOne({ userId });
+  const finalUser = await User.findById(userId);
+  const finalCoins = finalGalleryCoin ? finalGalleryCoin.coins : (galleryCoin ? galleryCoin.coins : 0);
+  
+  // 确保User模型和GalleryCoin模型同步
+  if (finalUser && finalGalleryCoin) {
+    finalUser.galleryCoins = finalGalleryCoin.coins;
+    finalUser.coins = finalGalleryCoin.coins; // 同时更新个人账户的coins字段
+    await finalUser.save();
   }
+  
+  console.log(`[BoxService] 免费盲盒最终返回WTC: ${finalCoins}`);
+  console.log(`[BoxService] User模型WTC: galleryCoins=${finalUser?.galleryCoins}, coins=${finalUser?.coins}, GalleryCoin模型WTC: ${finalGalleryCoin?.coins}`);
   
   return {
     rewardType,
     rewardValue,
     copyrightId,
-    remainingCoins: galleryCoin ? galleryCoin.coins : 0
+    remainingCoins: finalCoins
   };
 }
 

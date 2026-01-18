@@ -5,14 +5,14 @@
 import mongoose, { Document, Schema } from 'mongoose';
 
 export type BoxType = 'normal' | 'series' | 'free'; // 普通箱、系列箱、免费盲盒
-export type BoxRewardType = 'coins' | 'fragment' | 'adCard' | 'buffCard' | 'coupon'; // 奖励类型
+export type BoxRewardType = 'coins' | 'fragment' | 'adCard' | 'buffCard' | 'coupon' | 'copyright'; // 奖励类型
 
 export interface IBox extends Document {
   userId: mongoose.Types.ObjectId; // 用户ID
   boxType: BoxType; // 箱子类型
   rewardType: BoxRewardType; // 奖励类型
-  rewardValue: number; // 奖励数值（馆币数量、碎片数量等）
-  copyrightId?: mongoose.Types.ObjectId; // 关联的版权ID（碎片奖励）
+  rewardValue: number; // 奖励数值（馆币数量、碎片数量、版权份额数等）
+  copyrightId?: mongoose.Types.ObjectId; // 关联的版权ID（碎片奖励或版权份额奖励）
   seriesId?: mongoose.Types.ObjectId; // 关联的系列ID（系列箱）
   createdAt: Date;
 }
@@ -32,7 +32,7 @@ const BoxSchema = new Schema<IBox>(
     },
     rewardType: {
       type: String,
-      enum: ['coins', 'fragment', 'adCard', 'buffCard', 'coupon'],
+      enum: ['coins', 'fragment', 'adCard', 'buffCard', 'coupon', 'copyright'],
       required: true
     },
     rewardValue: {

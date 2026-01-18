@@ -7,8 +7,6 @@ import mongoose, { Document, Schema } from 'mongoose';
 export interface IUserBuff extends Document {
   userId: mongoose.Types.ObjectId; // 用户ID
   seriesId: mongoose.Types.ObjectId; // 系列ID
-  buffType: 'revenue' | 'game'; // buff类型
-  buffEffect: string; // buff效果
   isActive: boolean; // 是否激活
   activatedAt: Date; // 激活时间
   createdAt: Date;
@@ -26,15 +24,6 @@ const UserBuffSchema = new Schema<IUserBuff>(
     seriesId: {
       type: Schema.Types.ObjectId,
       ref: 'Series',
-      required: true
-    },
-    buffType: {
-      type: String,
-      enum: ['revenue', 'game'],
-      required: true
-    },
-    buffEffect: {
-      type: String,
       required: true
     },
     isActive: {

@@ -9,8 +9,7 @@ export interface ISeries extends Document {
   description: string; // 系列描述
   image: string; // 系列封面图
   copyrightIds: mongoose.Types.ObjectId[]; // 包含的版权ID列表（5-8个）
-  buffType: 'revenue' | 'game'; // buff类型：收益buff或游戏buff
-  buffEffect: string; // buff效果描述
+  hourlyBonusCoins: number; // 每小时额外WTC数量（集齐系列后激活）
   createdAt: Date;
   updatedAt: Date;
 }
@@ -33,14 +32,11 @@ const SeriesSchema = new Schema<ISeries>(
       type: Schema.Types.ObjectId,
       ref: 'Copyright'
     }],
-    buffType: {
-      type: String,
-      enum: ['revenue', 'game'],
-      required: true
-    },
-    buffEffect: {
-      type: String,
-      required: true
+    hourlyBonusCoins: {
+      type: Number,
+      required: true,
+      default: 0,
+      min: 0
     }
   },
   {

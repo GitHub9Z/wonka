@@ -7,6 +7,7 @@ import {
   Statistic,
   Table,
   Input,
+  InputNumber,
   Button,
   Avatar,
   Tag,
@@ -29,7 +30,8 @@ import {
   EditOutlined,
   DeleteOutlined,
   EyeOutlined,
-  PlusOutlined
+  PlusOutlined,
+  GiftOutlined
 } from '@ant-design/icons';
 import axios from 'axios';
 import './admin.less';
@@ -50,9 +52,11 @@ const Admin: React.FC = () => {
   const [data, setData] = useState<any[]>([]);
   const [stats, setStats] = useState({
     users: 0,
+    accountUsers: 0,
     copyrights: 0,
     series: 0,
-    shares: 0
+    shares: 0,
+    boxes: 0
   });
   const [pagination, setPagination] = useState({
     current: 1,
@@ -70,10 +74,12 @@ const Admin: React.FC = () => {
 
   const menuItems: MenuItem[] = [
     { key: 'dashboard', icon: <DashboardOutlined />, label: '统计概览' },
-    { key: 'users', icon: <UserOutlined />, label: '用户管理' },
+    { key: 'users', icon: <UserOutlined />, label: '用户管理（微信）' },
+    { key: 'account-users', icon: <UserOutlined />, label: '账号用户管理' },
     { key: 'copyrights', icon: <CopyrightOutlined />, label: '版权管理' },
     { key: 'series', icon: <AppstoreOutlined />, label: '系列管理' },
-    { key: 'shares', icon: <ShareAltOutlined />, label: '份额管理' }
+    { key: 'shares', icon: <ShareAltOutlined />, label: '份额管理' },
+    { key: 'boxes', icon: <GiftOutlined />, label: '开箱记录' }
   ];
 
   useEffect(() => {
@@ -83,6 +89,12 @@ const Admin: React.FC = () => {
       loadSeriesList();
     }
   }, [activeTab, pagination.current, pagination.pageSize, searchKeyword]);
+
+  useEffect(() => {
+    if (activeTab === 'boxes') {
+      loadList();
+    }
+  }, [activeTab]);
 
   const loadSeriesList = async () => {
     try {
@@ -114,19 +126,25 @@ const Admin: React.FC = () => {
     try {
       const responses = await Promise.all([
         apiRequest('/api/admin/users/count'),
+        apiRequest('/api/admin/account-users/count').catch(() => ({ data: { data: { count: 0 } } })),
         apiRequest('/api/admin/copyrights/count'),
         apiRequest('/api/admin/series/count'),
-        apiRequest('/api/admin/shares/stats').catch(() => ({ data: { data: { popular: [] } } }))
+        apiRequest('/api/admin/shares/stats').catch(() => ({ data: { data: { popular: [] } } })),
+        apiRequest('/api/admin/stats').catch(() => ({ data: { data: { total: { boxes: 0 } } } }))
       ]);
 
       // 计算总份额数
-      const sharesCount = responses[3].data.data?.popular?.reduce((sum: number, item: any) => sum + (item.count || 0), 0) || 0;
+      const sharesCount = responses[4].data.data?.popular?.reduce((sum: number, item: any) => sum + (item.count || 0), 0) || 0;
+      // 获取开箱记录总数
+      const boxesCount = responses[5].data.data?.total?.boxes || 0;
 
       setStats({
         users: responses[0].data.data.count,
-        copyrights: responses[1].data.data.count,
-        series: responses[2].data.data.count,
-        shares: sharesCount
+        accountUsers: responses[1].data.data.count,
+        copyrights: responses[2].data.data.count,
+        series: responses[3].data.data.count,
+        shares: sharesCount,
+        boxes: boxesCount
       });
     } catch (error) {
       message.error('加载统计数据失败');
@@ -204,8 +222,7 @@ const Admin: React.FC = () => {
     };
     
     if (activeTab === 'series') {
-      formValues.buffType = record.buffType;
-      formValues.buffEffect = record.buffEffect;
+      formValues.hourlyBonusCoins = record.hourlyBonusCoins || 0;
     } else if (activeTab === 'copyrights') {
       formValues.seriesId = record.seriesId?._id || record.seriesId;
       formValues.totalShares = record.totalShares;
@@ -216,6 +233,16 @@ const Admin: React.FC = () => {
       formValues.copyrightId = record.copyrightId?._id || record.copyrightId;
       formValues.blockchainHash = record.blockchainHash;
       formValues.inLotteryPool = record.inLotteryPool;
+    } else if (activeTab === 'account-users') {
+      formValues.email = record.email;
+      formValues.phone = record.phone;
+      formValues.nickname = record.nickname;
+      formValues.avatar = record.avatar;
+      formValues.coins = record.coins;
+      formValues.galleryCoins = record.galleryCoins;
+      formValues.level = record.level;
+      formValues.experience = record.experience;
+      formValues.isMinor = record.isMinor;
     }
     
     form.setFieldsValue(formValues);
@@ -234,6 +261,8 @@ const Admin: React.FC = () => {
         updateUrl = `/api/admin/copyrights/${editingRecord._id}`;
       } else if (activeTab === 'shares') {
         updateUrl = `/api/admin/shares/${editingRecord._id}`;
+      } else if (activeTab === 'account-users') {
+        updateUrl = `/api/admin/account-users/${editingRecord._id}`;
       }
 
       await axios.put(updateUrl, values, {
@@ -299,7 +328,14 @@ const Admin: React.FC = () => {
   const handleDelete = (record: any) => {
     Modal.confirm({
       title: '确认删除',
-      content: `确定要删除"${record.name || record._id}"吗？`,
+      content: activeTab === 'users' 
+        ? `确定要删除用户"${record.nickname || record.openId || record._id}"吗？此操作将同时删除该用户的所有相关数据（版权份额、开箱记录等），且不可恢复！`
+        : activeTab === 'account-users'
+        ? `确定要删除账号用户"${record.nickname || record.email || record.phone || record._id}"吗？此操作将同时删除该用户的所有相关数据（版权份额、开箱记录等），且不可恢复！`
+        : `确定要删除"${record.name || record._id}"吗？`,
+      okText: '确定',
+      cancelText: '取消',
+      okType: 'danger',
       onOk: async () => {
         try {
           const token = localStorage.getItem('admin_token');
@@ -310,6 +346,15 @@ const Admin: React.FC = () => {
             deleteUrl = `/api/admin/copyrights/${record._id}`;
           } else if (activeTab === 'shares') {
             deleteUrl = `/api/admin/shares/${record._id}`;
+          } else if (activeTab === 'users') {
+            deleteUrl = `/api/admin/users/${record._id}`;
+          } else if (activeTab === 'account-users') {
+            deleteUrl = `/api/admin/account-users/${record._id}`;
+          }
+
+          if (!deleteUrl) {
+            message.error('不支持删除此类型的数据');
+            return;
           }
 
           await axios.delete(deleteUrl, {
@@ -341,6 +386,8 @@ const Admin: React.FC = () => {
         detailUrl = `/api/admin/copyrights/${record._id}`;
       } else if (activeTab === 'shares') {
         detailUrl = `/api/admin/shares/${record._id}`;
+      } else if (activeTab === 'account-users') {
+        detailUrl = `/api/admin/account-users/${record._id}`;
       }
 
       const response = await axios.get(detailUrl, {
@@ -366,12 +413,78 @@ const Admin: React.FC = () => {
             render: (avatar: string) => <Avatar src={avatar} />
           },
           { title: '昵称', dataIndex: 'nickname' },
-          { title: '金币', dataIndex: 'coins', sorter: true },
+          { title: 'WTC', dataIndex: 'galleryCoins', sorter: true, render: (coins: number) => coins || 0 },
+          {
+            title: '免费盲盒状态',
+            dataIndex: 'freeBoxClaimed',
+            render: (claimed: boolean) => (
+              <Tag color={claimed ? 'orange' : 'green'}>
+                {claimed ? '今日已领取' : '今日未领取'}
+              </Tag>
+            )
+          },
           {
             title: '注册时间',
             dataIndex: 'createdAt',
             sorter: true,
             render: (date: string) => new Date(date).toLocaleString('zh-CN')
+          },
+          {
+            title: '操作',
+            key: 'action',
+            width: 100,
+            render: (_: any, record: any) => (
+              <Button type="link" danger icon={<DeleteOutlined />} onClick={() => handleDelete(record)}>
+                删除
+              </Button>
+            )
+          }
+        ];
+      case 'account-users':
+        return [
+          {
+            title: '头像',
+            dataIndex: 'avatar',
+            render: (avatar: string) => <Avatar src={avatar || '/default-avatar.png'} />
+          },
+          { title: '昵称', dataIndex: 'nickname' },
+          { 
+            title: '邮箱', 
+            dataIndex: 'email',
+            render: (email: string) => email || '-'
+          },
+          { 
+            title: '手机号', 
+            dataIndex: 'phone',
+            render: (phone: string) => phone || '-'
+          },
+          { title: 'WTC', dataIndex: 'coins', sorter: true, render: (coins: number) => coins || 0 },
+          { title: '馆币', dataIndex: 'galleryCoins', sorter: true, render: (coins: number) => coins || 0 },
+          { title: '等级', dataIndex: 'level', sorter: true },
+          { title: '经验值', dataIndex: 'experience', sorter: true },
+          {
+            title: '注册时间',
+            dataIndex: 'createdAt',
+            sorter: true,
+            render: (date: string) => new Date(date).toLocaleString('zh-CN')
+          },
+          {
+            title: '操作',
+            key: 'action',
+            width: 150,
+            render: (_: any, record: any) => (
+              <>
+                <Button type="link" icon={<EyeOutlined />} onClick={() => handleViewDetail(record)}>
+                  详情
+                </Button>
+                <Button type="link" icon={<EditOutlined />} onClick={() => handleEdit(record)}>
+                  编辑
+                </Button>
+                <Button type="link" danger icon={<DeleteOutlined />} onClick={() => handleDelete(record)}>
+                  删除
+                </Button>
+              </>
+            )
           }
         ];
       case 'artworks':
@@ -452,11 +565,11 @@ const Admin: React.FC = () => {
           { title: '名称', dataIndex: 'name' },
           { title: '描述', dataIndex: 'description' },
           {
-            title: 'Buff类型',
-            dataIndex: 'buffType',
-            render: (type: string) => type === 'revenue' ? '收益Buff' : '游戏Buff'
+            title: 'Buff效果（每小时额外WTC）',
+            dataIndex: 'hourlyBonusCoins',
+            render: (coins: number) => coins ? `+${coins.toLocaleString()} WTC/小时` : '0 WTC/小时',
+            sorter: true
           },
-          { title: 'Buff效果', dataIndex: 'buffEffect' },
           {
             title: '创建时间',
             dataIndex: 'createdAt',
@@ -540,41 +653,83 @@ const Admin: React.FC = () => {
         return [
           {
             title: '用户',
-            dataIndex: ['user', 'nickname'],
-            render: (text: string, record: any) => (
-              <Button type="link" onClick={() => {
-                setActiveTab('users');
-                // 可以添加跳转到用户详情的逻辑
-              }}>
-                {text || record.user?.openId || record.userId}
-              </Button>
-            )
+            dataIndex: 'user',
+            render: (user: any, record: any) => {
+              let displayText = '';
+              if (typeof user === 'object' && user !== null) {
+                displayText = user.nickname || user.openId || user._id?.toString() || '';
+              } else if (user) {
+                displayText = String(user);
+              } else {
+                displayText = record.user?.nickname || record.user?.openId || record.userId?.toString() || '未知用户';
+              }
+              return (
+                <Button type="link" onClick={() => {
+                  setActiveTab('users');
+                }}>
+                  {displayText}
+                </Button>
+              );
+            }
           },
           {
             title: '版权',
-            dataIndex: ['copyright', 'name'],
-            render: (text: string, record: any) => (
-              <Button type="link" onClick={() => {
-                setActiveTab('copyrights');
-                handleViewDetail({ _id: record.copyrightId || record.copyright?._id });
-              }}>
-                {text || record.copyrightId}
-              </Button>
-            )
+            dataIndex: 'copyright',
+            render: (copyright: any, record: any) => {
+              let displayText = '';
+              let copyrightIdValue = '';
+              
+              if (typeof copyright === 'object' && copyright !== null) {
+                displayText = copyright.name || copyright._id?.toString() || '';
+                copyrightIdValue = copyright._id?.toString() || '';
+              } else if (copyright) {
+                copyrightIdValue = String(copyright);
+                displayText = record.copyright?.name || copyrightIdValue;
+              } else {
+                displayText = record.copyright?.name || '';
+                copyrightIdValue = record.copyrightId?.toString() || record.copyright?._id?.toString() || '';
+              }
+              
+              return (
+                <Button type="link" onClick={() => {
+                  setActiveTab('copyrights');
+                  handleViewDetail({ _id: copyrightIdValue });
+                }}>
+                  {displayText || copyrightIdValue || '未知版权'}
+                </Button>
+              );
+            }
           },
           {
             title: '系列',
-            dataIndex: ['series', 'name'],
-            render: (text: string, record: any) => (
-              text ? (
-                <Button type="link" onClick={() => {
-                  setActiveTab('series');
-                  handleViewDetail({ _id: record.series?._id });
-                }}>
-                  {text}
-                </Button>
-              ) : '-'
-            )
+            dataIndex: 'series',
+            render: (series: any, record: any) => {
+              let displayText = '';
+              let seriesIdValue = '';
+              
+              if (typeof series === 'object' && series !== null) {
+                displayText = series.name || series._id?.toString() || '';
+                seriesIdValue = series._id?.toString() || '';
+              } else if (series) {
+                seriesIdValue = String(series);
+                displayText = record.series?.name || seriesIdValue;
+              } else {
+                displayText = record.series?.name || '';
+                seriesIdValue = record.series?._id?.toString() || '';
+              }
+              
+              if (displayText) {
+                return (
+                  <Button type="link" onClick={() => {
+                    setActiveTab('series');
+                    handleViewDetail({ _id: seriesIdValue });
+                  }}>
+                    {displayText}
+                  </Button>
+                );
+              }
+              return '-';
+            }
           },
           {
             title: '区块链Hash',
@@ -619,6 +774,118 @@ const Admin: React.FC = () => {
             )
           }
         ];
+      case 'boxes':
+        return [
+          {
+            title: '用户',
+            dataIndex: 'userId',
+            render: (userId: any, record: any) => {
+              let displayText = '';
+              if (typeof userId === 'object' && userId !== null) {
+                displayText = userId.nickname || userId.openId || userId._id?.toString() || '';
+              } else if (userId) {
+                displayText = String(userId);
+              } else {
+                displayText = record.userId?.nickname || record.userId?.openId || record.userId?._id?.toString() || '未知用户';
+              }
+              return (
+                <Button type="link" onClick={() => {
+                  setActiveTab('users');
+                }}>
+                  {displayText}
+                </Button>
+              );
+            }
+          },
+          {
+            title: '盲盒类型',
+            dataIndex: 'boxType',
+            render: (type: string) => {
+              const types: { [key: string]: { text: string; color: string } } = {
+                normal: { text: '常规盲盒', color: 'blue' },
+                free: { text: '免费盲盒', color: 'green' },
+                series: { text: '系列盲盒', color: 'purple' }
+              };
+              const typeInfo = types[type] || { text: type, color: 'default' };
+              return <Tag color={typeInfo.color}>{typeInfo.text}</Tag>;
+            }
+          },
+          {
+            title: '奖励类型',
+            dataIndex: 'rewardType',
+            render: (type: string) => {
+              const types: { [key: string]: { text: string; color: string } } = {
+                coins: { text: 'WTC', color: 'gold' },
+                fragment: { text: '版权碎片', color: 'cyan' },
+                adCard: { text: '广告卡', color: 'orange' },
+                buffCard: { text: 'Buff卡', color: 'purple' },
+                coupon: { text: '优惠券', color: 'green' }
+              };
+              const typeInfo = types[type] || { text: type, color: 'default' };
+              return <Tag color={typeInfo.color}>{typeInfo.text}</Tag>;
+            }
+          },
+          {
+            title: '奖励数值',
+            dataIndex: 'rewardValue',
+            render: (value: number, record: any) => {
+              if (record.rewardType === 'coins') {
+                return `${value.toLocaleString()} WTC`;
+              } else if (record.rewardType === 'fragment') {
+                return `${value} 碎片`;
+              } else {
+                return value;
+              }
+            }
+          },
+          {
+            title: '关联版权',
+            dataIndex: 'copyrightId',
+            render: (copyrightId: any, record: any) => {
+              let displayText = '';
+              let copyrightIdValue = '';
+              
+              if (typeof copyrightId === 'object' && copyrightId !== null) {
+                displayText = copyrightId.name || copyrightId._id?.toString() || '';
+                copyrightIdValue = copyrightId._id?.toString() || '';
+              } else if (copyrightId) {
+                copyrightIdValue = String(copyrightId);
+                displayText = record.copyrightId?.name || copyrightIdValue;
+              } else {
+                displayText = record.copyrightId?.name || '';
+                copyrightIdValue = record.copyrightId?._id?.toString() || record.copyrightId || '';
+              }
+              
+              if (displayText) {
+                return (
+                  <Button type="link" onClick={() => {
+                    setActiveTab('copyrights');
+                    handleViewDetail({ _id: copyrightIdValue });
+                  }}>
+                    {displayText}
+                  </Button>
+                );
+              }
+              return '-';
+            }
+          },
+          {
+            title: '开箱时间',
+            dataIndex: 'createdAt',
+            sorter: true,
+            render: (date: string) => new Date(date).toLocaleString('zh-CN')
+          },
+          {
+            title: '操作',
+            key: 'action',
+            width: 100,
+            render: (_: any, record: any) => (
+              <Button type="link" icon={<EyeOutlined />} onClick={() => handleViewDetail(record)}>
+                详情
+              </Button>
+            )
+          }
+        ];
       default:
         return [];
     }
@@ -629,7 +896,10 @@ const Admin: React.FC = () => {
       return (
         <div className="stats-grid">
           <Card>
-            <Statistic title="总用户数" value={stats.users} />
+            <Statistic title="总用户数（微信）" value={stats.users} />
+          </Card>
+          <Card>
+            <Statistic title="总账号用户数" value={stats.accountUsers} />
           </Card>
           <Card>
             <Statistic title="总版权数" value={stats.copyrights} />
@@ -638,7 +908,10 @@ const Admin: React.FC = () => {
             <Statistic title="总系列数" value={stats.series} />
           </Card>
           <Card>
-            <Statistic title="总版权数" value={stats.copyrights} />
+            <Statistic title="总份额数" value={stats.shares} />
+          </Card>
+          <Card>
+            <Statistic title="总开箱数" value={stats.boxes} />
           </Card>
         </div>
       );
@@ -649,7 +922,7 @@ const Admin: React.FC = () => {
         <div className="table-toolbar">
           <h2>{menuItems.find(item => item.key === activeTab)?.label}</h2>
           <div style={{ display: 'flex', gap: '8px' }}>
-            {activeTab !== 'users' && (
+            {activeTab !== 'users' && activeTab !== 'boxes' && (
               <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
                 新建
               </Button>
@@ -738,6 +1011,78 @@ const Admin: React.FC = () => {
         width={600}
       >
         <Form form={form} layout="vertical">
+          {activeTab === 'account-users' && (
+            <>
+              <Form.Item
+                name="email"
+                label="邮箱"
+                rules={[
+                  { type: 'email', message: '邮箱格式不正确' }
+                ]}
+              >
+                <Input placeholder="请输入邮箱（可选）" />
+              </Form.Item>
+              <Form.Item
+                name="phone"
+                label="手机号"
+                rules={[
+                  { pattern: /^1[3-9]\d{9}$/, message: '手机号格式不正确（应为11位数字）' }
+                ]}
+              >
+                <Input placeholder="请输入手机号（可选）" />
+              </Form.Item>
+              <Form.Item
+                name="nickname"
+                label="昵称"
+                rules={[{ required: true, message: '请输入昵称' }]}
+              >
+                <Input placeholder="请输入昵称" />
+              </Form.Item>
+              <Form.Item
+                name="avatar"
+                label="头像URL"
+              >
+                <Input placeholder="请输入头像URL（可选）" />
+              </Form.Item>
+              <Form.Item
+                name="coins"
+                label="WTC"
+                rules={[{ required: true, message: '请输入WTC' }]}
+              >
+                <InputNumber min={0} placeholder="请输入WTC" style={{ width: '100%' }} />
+              </Form.Item>
+              <Form.Item
+                name="galleryCoins"
+                label="馆币"
+                rules={[{ required: true, message: '请输入馆币' }]}
+              >
+                <InputNumber min={0} placeholder="请输入馆币" style={{ width: '100%' }} />
+              </Form.Item>
+              <Form.Item
+                name="level"
+                label="等级"
+                rules={[{ required: true, message: '请输入等级' }]}
+              >
+                <InputNumber min={1} placeholder="请输入等级" style={{ width: '100%' }} />
+              </Form.Item>
+              <Form.Item
+                name="experience"
+                label="经验值"
+                rules={[{ required: true, message: '请输入经验值' }]}
+              >
+                <InputNumber min={0} placeholder="请输入经验值" style={{ width: '100%' }} />
+              </Form.Item>
+              <Form.Item
+                name="isMinor"
+                label="是否未成年人"
+              >
+                <Select placeholder="请选择">
+                  <Select.Option value={false}>否</Select.Option>
+                  <Select.Option value={true}>是</Select.Option>
+                </Select>
+              </Form.Item>
+            </>
+          )}
           {(activeTab === 'series' || activeTab === 'copyrights') && (
             <>
               <Form.Item
@@ -761,24 +1106,6 @@ const Admin: React.FC = () => {
                 >
                   <Input.TextArea rows={4} placeholder="请输入描述" />
                 </Form.Item>
-              )}
-              {activeTab === 'series' && (
-                <>
-                  <Form.Item
-                    name="buffType"
-                    label="Buff类型"
-                    rules={[{ required: true, message: '请选择Buff类型' }]}
-                  >
-                    <Input placeholder="revenue 或 game" />
-                  </Form.Item>
-                  <Form.Item
-                    name="buffEffect"
-                    label="Buff效果"
-                    rules={[{ required: true, message: '请输入Buff效果' }]}
-                  >
-                    <Input placeholder="请输入Buff效果" />
-                  </Form.Item>
-                </>
               )}
               {activeTab === 'copyrights' && (
                 <>
@@ -828,25 +1155,24 @@ const Admin: React.FC = () => {
                 </>
               )}
               {activeTab === 'series' && (
-                <>
-                  <Form.Item
-                    name="buffType"
-                    label="Buff类型"
-                    rules={[{ required: true, message: '请选择Buff类型' }]}
-                  >
-                    <Select>
-                      <Select.Option value="revenue">收益Buff</Select.Option>
-                      <Select.Option value="game">游戏Buff</Select.Option>
-                    </Select>
-                  </Form.Item>
-                  <Form.Item
-                    name="buffEffect"
-                    label="Buff效果"
-                    rules={[{ required: true, message: '请输入Buff效果' }]}
-                  >
-                    <Input placeholder="请输入Buff效果" />
-                  </Form.Item>
-                </>
+                <Form.Item
+                  name="hourlyBonusCoins"
+                  label="Buff效果（每小时额外WTC）"
+                  rules={[
+                    { required: true, message: '请输入每小时额外WTC数量' },
+                    { type: 'number', min: 0, message: 'WTC数量不能小于0' }
+                  ]}
+                >
+                  <InputNumber 
+                    style={{ width: '100%' }}
+                    placeholder="请输入每小时额外WTC数量"
+                    min={0}
+                    step={100}
+                    formatter={value => `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+                    parser={value => value!.replace(/\$\s?|(,*)/g, '')}
+                    addonAfter="WTC/小时"
+                  />
+                </Form.Item>
               )}
             </>
           )}
@@ -923,21 +1249,22 @@ const Admin: React.FC = () => {
                 <Input.TextArea rows={4} placeholder="请输入描述" />
               </Form.Item>
               <Form.Item
-                name="buffType"
-                label="Buff类型"
-                rules={[{ required: true, message: '请选择Buff类型' }]}
+                name="hourlyBonusCoins"
+                label="Buff效果（每小时额外WTC）"
+                rules={[
+                  { required: true, message: '请输入每小时额外WTC数量' },
+                  { type: 'number', min: 0, message: 'WTC数量不能小于0' }
+                ]}
               >
-                <Select>
-                  <Select.Option value="revenue">收益Buff</Select.Option>
-                  <Select.Option value="game">游戏Buff</Select.Option>
-                </Select>
-              </Form.Item>
-              <Form.Item
-                name="buffEffect"
-                label="Buff效果"
-                rules={[{ required: true, message: '请输入Buff效果' }]}
-              >
-                <Input placeholder="请输入Buff效果" />
+                <InputNumber 
+                  style={{ width: '100%' }}
+                  placeholder="请输入每小时额外WTC数量"
+                  min={0}
+                  step={100}
+                  formatter={value => `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+                  parser={value => value!.replace(/\$\s?|(,*)/g, '')}
+                  addonAfter="WTC/小时"
+                />
               </Form.Item>
             </>
           )}

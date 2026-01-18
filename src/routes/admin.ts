@@ -5,9 +5,14 @@
 import { Router, Response } from 'express';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import User from '../models/User';
+import AccountUser from '../models/AccountUser';
 import Series from '../models/Series';
 import Copyright from '../models/Copyright';
 import CopyrightShare from '../models/CopyrightShare';
+import Box from '../models/Box';
+import GalleryCoin from '../models/GalleryCoin';
+import CopyrightFragment from '../models/CopyrightFragment';
+import UserBuff from '../models/UserBuff';
 
 const router = Router();
 
@@ -60,7 +65,16 @@ router.get('/stats', async (req: AuthRequest, res: Response) => {
       createdAt: { $gte: sevenDaysAgo }
     });
     
+    const recentAccountUsers = await AccountUser.countDocuments({
+      createdAt: { $gte: sevenDaysAgo }
+    });
+    
     const recentShares = await CopyrightShare.countDocuments({
+      createdAt: { $gte: sevenDaysAgo }
+    });
+    
+    const totalBoxes = await Box.countDocuments();
+    const recentBoxes = await Box.countDocuments({
       createdAt: { $gte: sevenDaysAgo }
     });
 
@@ -71,13 +85,17 @@ router.get('/stats', async (req: AuthRequest, res: Response) => {
         total: {
           copyrights: totalCopyrights,
           users: totalUsers,
-          shares: totalShares
+          accountUsers: totalAccountUsers,
+          shares: totalShares,
+          boxes: totalBoxes
         },
         series: seriesStats,
         recent: {
           copyrights: recentCopyrights,
           users: recentUsers,
-          shares: recentShares
+          accountUsers: recentAccountUsers,
+          shares: recentShares,
+          boxes: recentBoxes
         }
       }
     });
@@ -309,6 +327,27 @@ router.delete('/copyrights/:id', async (req: AuthRequest, res: Response) => {
 });
 
 /**
+ * 获取用户总数（需要在 /users/:id 之前定义）
+ */
+router.get('/users/count', async (req: AuthRequest, res: Response) => {
+  try {
+    const count = await User.countDocuments();
+    res.json({
+      code: 200,
+      message: '获取成功',
+      data: { count }
+    });
+  } catch (error: any) {
+    console.error('获取用户总数错误:', error);
+    res.status(500).json({
+      code: 500,
+      message: error.message || '获取失败',
+      data: null
+    });
+  }
+});
+
+/**
  * 获取用户列表
  */
 router.get('/users', async (req: AuthRequest, res: Response) => {
@@ -333,11 +372,35 @@ router.get('/users', async (req: AuthRequest, res: Response) => {
 
     const total = await User.countDocuments(query);
 
+    // 检查每个用户今日是否已领取免费盲盒
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayEnd = new Date(today);
+    todayEnd.setHours(23, 59, 59, 999);
+
+    const usersWithBoxStatus = await Promise.all(
+      users.map(async (user) => {
+        const todayBox = await Box.findOne({
+          userId: user._id,
+          boxType: 'free',
+          createdAt: {
+            $gte: today,
+            $lte: todayEnd
+          }
+        });
+
+        return {
+          ...user.toObject(),
+          freeBoxClaimed: !!todayBox
+        };
+      })
+    );
+
     res.json({
       code: 200,
       message: '获取成功',
       data: {
-        list: users,
+        list: usersWithBoxStatus,
         total,
         page,
         pageSize
@@ -443,9 +506,9 @@ router.get('/copyrights', async (req: AuthRequest, res: Response) => {
  */
 router.post('/series', async (req: AuthRequest, res: Response) => {
   try {
-    const { name, description, image, buffType, buffEffect } = req.body;
+    const { name, description, image, hourlyBonusCoins } = req.body;
 
-    if (!name || !description || !image || !buffType || !buffEffect) {
+    if (!name || !description || !image || hourlyBonusCoins === undefined) {
       return res.status(400).json({
         code: 400,
         message: '缺少必要字段',
@@ -457,8 +520,8 @@ router.post('/series', async (req: AuthRequest, res: Response) => {
       name,
       description,
       image,
-      buffType,
-      buffEffect
+      hourlyBonusCoins: Number(hourlyBonusCoins) || 0,
+      copyrightIds: []
     });
 
     await series.save();
@@ -769,118 +832,6 @@ router.delete('/copyrights/:id', async (req: AuthRequest, res: Response) => {
 });
 
 /**
- * 获取版权份额列表
- */
-router.get('/shares', async (req: AuthRequest, res: Response) => {
-  try {
-    const page = parseInt(req.query.page as string) || 1;
-    const pageSize = parseInt(req.query.pageSize as string) || 20;
-    const skip = (page - 1) * pageSize;
-    const keyword = req.query.keyword as string;
-
-    let matchQuery: any = {};
-    if (keyword) {
-      matchQuery.$or = [
-        { 'user.nickname': { $regex: keyword, $options: 'i' } },
-        { 'user.openId': { $regex: keyword, $options: 'i' } },
-        { 'copyright.name': { $regex: keyword, $options: 'i' } }
-      ];
-    }
-
-    const pipeline = [
-      {
-        $lookup: {
-          from: 'users',
-          localField: 'userId',
-          foreignField: '_id',
-          as: 'user'
-        }
-      },
-      { $unwind: '$user' },
-      {
-        $lookup: {
-          from: 'copyrights',
-          localField: 'copyrightId',
-          foreignField: '_id',
-          as: 'copyright'
-        }
-      },
-      { $unwind: '$copyright' },
-      {
-        $lookup: {
-          from: 'series',
-          localField: 'copyright.seriesId',
-          foreignField: '_id',
-          as: 'series'
-        }
-      },
-      { $unwind: { path: '$series', preserveNullAndEmptyArrays: true } }
-    ];
-
-    if (Object.keys(matchQuery).length > 0) {
-      pipeline.push({ $match: matchQuery });
-    }
-
-    pipeline.push(
-      { $sort: { createdAt: -1 } },
-      { $skip: skip },
-      { $limit: pageSize }
-    );
-
-    const shares = await CopyrightShare.aggregate(pipeline);
-
-    // 获取总数
-    let totalPipeline = [
-      {
-        $lookup: {
-          from: 'users',
-          localField: 'userId',
-          foreignField: '_id',
-          as: 'user'
-        }
-      },
-      { $unwind: '$user' },
-      {
-        $lookup: {
-          from: 'copyrights',
-          localField: 'copyrightId',
-          foreignField: '_id',
-          as: 'copyright'
-        }
-      },
-      { $unwind: '$copyright' }
-    ];
-
-    if (Object.keys(matchQuery).length > 0) {
-      totalPipeline.push({ $match: matchQuery });
-    }
-
-    totalPipeline.push({ $count: 'total' });
-
-    const totalResult = await CopyrightShare.aggregate(totalPipeline);
-    const total = totalResult.length > 0 ? totalResult[0].total : 0;
-
-    res.json({
-      code: 200,
-      message: '获取成功',
-      data: {
-        list: shares,
-        total,
-        page,
-        pageSize
-      }
-    });
-  } catch (error: any) {
-    console.error('获取版权份额列表错误:', error);
-    res.status(500).json({
-      code: 500,
-      message: error.message || '获取失败',
-      data: null
-    });
-  }
-});
-
-/**
  * 创建份额
  */
 router.post('/shares', async (req: AuthRequest, res: Response) => {
@@ -920,6 +871,55 @@ router.post('/shares', async (req: AuthRequest, res: Response) => {
     res.status(500).json({
       code: 500,
       message: error.message || '创建失败',
+      data: null
+    });
+  }
+});
+
+/**
+ * 获取份额统计
+ */
+router.get('/shares/stats', async (req: AuthRequest, res: Response) => {
+  try {
+    // 最受欢迎的版权（持有份额数最多）
+    const popularCopyrights = await CopyrightShare.aggregate([
+      {
+        $group: {
+          _id: '$copyrightId',
+          count: { $sum: 1 }
+        }
+      },
+      {
+        $sort: { count: -1 }
+      },
+      {
+        $limit: 10
+      },
+      {
+        $lookup: {
+          from: 'copyrights',
+          localField: '_id',
+          foreignField: '_id',
+          as: 'copyright'
+        }
+      },
+      {
+        $unwind: '$copyright'
+      }
+    ]);
+
+    res.json({
+      code: 200,
+      message: '获取成功',
+      data: {
+        popular: popularCopyrights
+      }
+    });
+  } catch (error: any) {
+    console.error('获取份额统计错误:', error);
+    res.status(500).json({
+      code: 500,
+      message: error.message || '获取失败',
       data: null
     });
   }
@@ -1167,46 +1167,99 @@ router.get('/shares', async (req: AuthRequest, res: Response) => {
 });
 
 /**
- * 获取份额统计
+ * 删除用户
  */
-router.get('/shares/stats', async (req: AuthRequest, res: Response) => {
+router.delete('/users/:id', async (req: AuthRequest, res: Response) => {
   try {
-    // 最受欢迎的版权（持有份额数最多）
-    const popularCopyrights = await CopyrightShare.aggregate([
-      {
-        $group: {
-          _id: '$copyrightId',
-          count: { $sum: 1 }
-        }
-      },
-      {
-        $sort: { count: -1 }
-      },
-      {
-        $limit: 10
-      },
-      {
-        $lookup: {
-          from: 'copyrights',
-          localField: '_id',
-          foreignField: '_id',
-          as: 'copyright'
-        }
-      },
-      {
-        $unwind: '$copyright'
-      }
-    ]);
+    const { id } = req.params;
+
+    const user = await User.findById(id);
+    if (!user) {
+      return res.status(404).json({
+        code: 404,
+        message: '用户不存在',
+        data: null
+      });
+    }
+
+    // 级联删除用户相关的所有数据
+    const userId = user._id;
+
+    // 删除用户的版权份额
+    await CopyrightShare.deleteMany({ userId });
+
+    // 删除用户的馆币记录
+    await GalleryCoin.deleteMany({ userId });
+
+    // 删除用户的盲盒记录
+    await Box.deleteMany({ userId });
+
+    // 删除用户的碎片记录
+    await CopyrightFragment.deleteMany({ userId });
+
+    // 删除用户的Buff记录
+    await UserBuff.deleteMany({ userId });
+
+    // 最后删除用户本身
+    await User.findByIdAndDelete(id);
+
+    res.json({
+      code: 200,
+      message: '删除成功',
+      data: null
+    });
+  } catch (error: any) {
+    console.error('删除用户错误:', error);
+    res.status(500).json({
+      code: 500,
+      message: error.message || '删除失败',
+      data: null
+    });
+  }
+});
+
+
+/**
+ * 获取开箱记录列表
+ */
+router.get('/boxes', async (req: AuthRequest, res: Response) => {
+  try {
+    const page = parseInt(req.query.page as string) || 1;
+    const pageSize = parseInt(req.query.pageSize as string) || 20;
+    const skip = (page - 1) * pageSize;
+    const userId = req.query.userId as string;
+    const boxType = req.query.boxType as string;
+
+    const query: any = {};
+    if (userId) {
+      query.userId = userId;
+    }
+    if (boxType) {
+      query.boxType = boxType;
+    }
+
+    const boxes = await Box.find(query)
+      .populate('userId', 'nickname avatar')
+      .populate('copyrightId', 'name image')
+      .populate('seriesId', 'name')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(pageSize);
+
+    const total = await Box.countDocuments(query);
 
     res.json({
       code: 200,
       message: '获取成功',
       data: {
-        popular: popularCopyrights
+        list: boxes,
+        total,
+        page,
+        pageSize
       }
     });
   } catch (error: any) {
-    console.error('获取份额统计错误:', error);
+    console.error('获取开箱记录错误:', error);
     res.status(500).json({
       code: 500,
       message: error.message || '获取失败',
@@ -1216,18 +1269,53 @@ router.get('/shares/stats', async (req: AuthRequest, res: Response) => {
 });
 
 /**
- * 获取用户总数
+ * 获取开箱记录统计
  */
-router.get('/users/count', async (req: AuthRequest, res: Response) => {
+router.get('/boxes/stats', async (req: AuthRequest, res: Response) => {
   try {
-    const count = await User.countDocuments();
+    const totalBoxes = await Box.countDocuments();
+    
+    // 按类型统计
+    const byType = await Box.aggregate([
+      {
+        $group: {
+          _id: '$boxType',
+          count: { $sum: 1 }
+        }
+      }
+    ]);
+
+    // 按奖励类型统计
+    const byReward = await Box.aggregate([
+      {
+        $group: {
+          _id: '$rewardType',
+          count: { $sum: 1 },
+          totalValue: { $sum: '$rewardValue' }
+        }
+      }
+    ]);
+
+    // 最近7天的数据
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    
+    const recentBoxes = await Box.countDocuments({
+      createdAt: { $gte: sevenDaysAgo }
+    });
+
     res.json({
       code: 200,
       message: '获取成功',
-      data: { count }
+      data: {
+        total: totalBoxes,
+        byType,
+        byReward,
+        recent: recentBoxes
+      }
     });
   } catch (error: any) {
-    console.error('获取用户总数错误:', error);
+    console.error('获取开箱统计错误:', error);
     res.status(500).json({
       code: 500,
       message: error.message || '获取失败',
@@ -1236,6 +1324,221 @@ router.get('/users/count', async (req: AuthRequest, res: Response) => {
   }
 });
 
+/**
+ * 获取单个开箱记录详情
+ */
+router.get('/boxes/:id', async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    const box = await Box.findById(id)
+      .populate('userId', 'nickname avatar')
+      .populate('copyrightId', 'name image seriesId')
+      .populate('seriesId', 'name');
+
+    if (!box) {
+      return res.status(404).json({
+        code: 404,
+        message: '开箱记录不存在',
+        data: null
+      });
+    }
+
+    res.json({
+      code: 200,
+      message: '获取成功',
+      data: box
+    });
+  } catch (error: any) {
+    console.error('获取开箱记录详情错误:', error);
+    res.status(500).json({
+      code: 500,
+      message: error.message || '获取失败',
+      data: null
+    });
+  }
+});
+
+
+/**
+ * 获取账号用户总数（需要在 /account-users/:id 之前定义）
+ */
+router.get('/account-users/count', async (req: AuthRequest, res: Response) => {
+  try {
+    const count = await AccountUser.countDocuments();
+    res.json({
+      code: 200,
+      message: '获取成功',
+      data: { count }
+    });
+  } catch (error: any) {
+    console.error('获取账号用户总数错误:', error);
+    res.status(500).json({
+      code: 500,
+      message: error.message || '获取失败',
+      data: null
+    });
+  }
+});
+
+/**
+ * 获取账号用户列表
+ */
+router.get('/account-users', async (req: AuthRequest, res: Response) => {
+  try {
+    const page = parseInt(req.query.page as string) || 1;
+    const pageSize = parseInt(req.query.pageSize as string) || 20;
+    const skip = (page - 1) * pageSize;
+    const keyword = req.query.keyword as string;
+
+    let query: any = {};
+    if (keyword) {
+      query.$or = [
+        { email: { $regex: keyword, $options: 'i' } },
+        { phone: { $regex: keyword, $options: 'i' } },
+        { nickname: { $regex: keyword, $options: 'i' } }
+      ];
+    }
+
+    const accountUsers = await AccountUser.find(query)
+      .select('-password') // 不返回密码
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(pageSize);
+
+    const total = await AccountUser.countDocuments(query);
+
+    res.json({
+      code: 200,
+      message: '获取成功',
+      data: {
+        list: accountUsers,
+        total,
+        page,
+        pageSize
+      }
+    });
+  } catch (error: any) {
+    console.error('获取账号用户列表错误:', error);
+    res.status(500).json({
+      code: 500,
+      message: error.message || '获取失败',
+      data: null
+    });
+  }
+});
+
+/**
+ * 获取账号用户详情
+ */
+router.get('/account-users/:id', async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const accountUser = await AccountUser.findById(id).select('-password');
+
+    if (!accountUser) {
+      return res.status(404).json({
+        code: 404,
+        message: '账号用户不存在',
+        data: null
+      });
+    }
+
+    res.json({
+      code: 200,
+      message: '获取成功',
+      data: accountUser
+    });
+  } catch (error: any) {
+    console.error('获取账号用户详情错误:', error);
+    res.status(500).json({
+      code: 500,
+      message: error.message || '获取失败',
+      data: null
+    });
+  }
+});
+
+/**
+ * 更新账号用户
+ */
+router.put('/account-users/:id', async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const updates = req.body;
+
+    // 不允许更新密码（密码更新应通过专门的接口）
+    delete updates.password;
+
+    const accountUser = await AccountUser.findByIdAndUpdate(
+      id,
+      { $set: updates },
+      { new: true, runValidators: true }
+    ).select('-password');
+
+    if (!accountUser) {
+      return res.status(404).json({
+        code: 404,
+        message: '账号用户不存在',
+        data: null
+      });
+    }
+
+    res.json({
+      code: 200,
+      message: '更新成功',
+      data: accountUser
+    });
+  } catch (error: any) {
+    console.error('更新账号用户错误:', error);
+    res.status(500).json({
+      code: 500,
+      message: error.message || '更新失败',
+      data: null
+    });
+  }
+});
+
+/**
+ * 删除账号用户
+ */
+router.delete('/account-users/:id', async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    const accountUser = await AccountUser.findById(id);
+    if (!accountUser) {
+      return res.status(404).json({
+        code: 404,
+        message: '账号用户不存在',
+        data: null
+      });
+    }
+
+    const userId = accountUser._id;
+
+    // 级联删除账号用户相关的所有数据
+    await CopyrightShare.deleteMany({ userId });
+    await GalleryCoin.deleteMany({ userId });
+    await Box.deleteMany({ userId });
+    await CopyrightFragment.deleteMany({ userId });
+    await UserBuff.deleteMany({ userId });
+    await AccountUser.findByIdAndDelete(id);
+
+    res.json({
+      code: 200,
+      message: '删除成功',
+      data: null
+    });
+  } catch (error: any) {
+    console.error('删除账号用户错误:', error);
+    res.status(500).json({
+      code: 500,
+      message: error.message || '删除失败',
+      data: null
+    });
+  }
+});
 
 export default router;
 

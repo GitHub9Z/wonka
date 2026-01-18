@@ -47,12 +47,29 @@ router.get('/coins/info', async (req: AuthRequest, res: Response) => {
     const userId = req.user!.userId;
     const coinsPerHour = await galleryCoinService.calculateCoins(userId);
     
+    // 从数据库获取最新的 WTC 数量，确保数据一致性
+    const GalleryCoin = require('../models/GalleryCoin').default;
+    const galleryCoin = await GalleryCoin.findOne({ userId });
+    const totalCoins = galleryCoin ? galleryCoin.coins : (req.user!.galleryCoins || 0);
+    
+    // 同步到 User 模型
+    if (galleryCoin) {
+      const User = require('../models/User').default;
+      const user = await User.findById(userId);
+      if (user && user.coins !== galleryCoin.coins) {
+        user.coins = galleryCoin.coins;
+        user.galleryCoins = galleryCoin.coins;
+        await user.save();
+        console.log(`[GalleryCoinsInfo] 同步User.coins: ${user.coins} <- GalleryCoin.coins: ${galleryCoin.coins}`);
+      }
+    }
+    
     res.json({
       code: 200,
       message: '获取成功',
       data: {
         coinsPerHour,
-        totalCoins: req.user!.galleryCoins || 0
+        totalCoins: totalCoins
       }
     });
   } catch (error: any) {
@@ -235,7 +252,7 @@ router.post('/fragment/synthesize', async (req: AuthRequest, res: Response) => {
 });
 
 /**
- * 获取用户的buff效果
+ * 获取用户的buff效果（统计信息）
  */
 router.get('/buffs', async (req: AuthRequest, res: Response) => {
   try {
@@ -245,10 +262,140 @@ router.get('/buffs', async (req: AuthRequest, res: Response) => {
     res.json({
       code: 200,
       message: '获取成功',
-      data: effects
+      data: {
+        totalHourlyBonusCoins: effects.totalHourlyBonusCoins,
+        buffCount: effects.buffs.length
+      }
     });
   } catch (error: any) {
     console.error('获取buff效果错误:', error);
+    res.status(500).json({
+      code: 500,
+      message: error.message || '获取失败',
+      data: null
+    });
+  }
+});
+
+/**
+ * 获取用户的系列buff列表（收益明细）
+ */
+router.get('/buffs/list', async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user!.userId;
+    const UserBuff = require('../models/UserBuff').default;
+    
+    const buffs = await UserBuff.find({ userId, isActive: true })
+      .populate('seriesId', 'name image description buffType buffEffect')
+      .sort({ activatedAt: -1 });
+    
+    const buffList = buffs.map(buff => {
+      const series = buff.seriesId as any;
+      return {
+        id: buff._id,
+        seriesName: series?.name || '未知系列',
+        seriesImage: series?.image || '',
+        seriesDescription: series?.description || '',
+        hourlyBonusCoins: series?.hourlyBonusCoins || 0,
+        activatedAt: buff.activatedAt,
+        createdAt: buff.createdAt
+      };
+    });
+    
+    res.json({
+      code: 200,
+      message: '获取成功',
+      data: buffList
+    });
+  } catch (error: any) {
+    console.error('获取系列buff列表错误:', error);
+    res.status(500).json({
+      code: 500,
+      message: error.message || '获取失败',
+      data: null
+    });
+  }
+});
+
+/**
+ * 获取用户的开箱记录
+ */
+router.get('/box/my', async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user!.userId;
+    const page = parseInt(req.query.page as string) || 1;
+    const pageSize = parseInt(req.query.pageSize as string) || 20;
+    const skip = (page - 1) * pageSize;
+    
+    const Box = require('../models/Box').default;
+    const Copyright = require('../models/Copyright').default;
+    
+    const boxes = await Box.find({ userId })
+      .populate('copyrightId', 'name image')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(pageSize);
+    
+    const total = await Box.countDocuments({ userId });
+    
+    const records = boxes.map(box => {
+      const copyright = box.copyrightId as any;
+      let rewardText = '';
+      
+      if (box.rewardType === 'coins') {
+        rewardText = `获得 ${box.rewardValue.toLocaleString()} WTC`;
+      } else if (box.rewardType === 'copyright') {
+        rewardText = `获得 ${box.rewardValue} 份版权`;
+        if (copyright) {
+          rewardText += ` (${copyright.name})`;
+        }
+      } else if (box.rewardType === 'fragment') {
+        rewardText = `获得 ${box.rewardValue} 个版权碎片`;
+        if (copyright) {
+          rewardText += ` (${copyright.name})`;
+        }
+      } else if (box.rewardType === 'adCard') {
+        rewardText = `获得 ${box.rewardValue} 张广告卡`;
+      } else if (box.rewardType === 'buffCard') {
+        rewardText = `获得 Buff卡`;
+      } else if (box.rewardType === 'coupon') {
+        rewardText = `获得优惠券`;
+      }
+      
+      let boxTypeText = '';
+      if (box.boxType === 'normal') {
+        boxTypeText = '常规盲盒';
+      } else if (box.boxType === 'free') {
+        boxTypeText = '免费盲盒';
+      } else if (box.boxType === 'series') {
+        boxTypeText = '系列盲盒';
+      }
+      
+      return {
+        id: box._id,
+        boxType: box.boxType,
+        boxTypeText,
+        rewardType: box.rewardType,
+        rewardValue: box.rewardValue,
+        rewardText,
+        copyrightName: copyright?.name || '',
+        copyrightImage: copyright?.image || '',
+        createdAt: box.createdAt
+      };
+    });
+    
+    res.json({
+      code: 200,
+      message: '获取成功',
+      data: {
+        list: records,
+        total,
+        page,
+        pageSize
+      }
+    });
+  } catch (error: any) {
+    console.error('获取开箱记录错误:', error);
     res.status(500).json({
       code: 500,
       message: error.message || '获取失败',
