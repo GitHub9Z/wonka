@@ -142,3 +142,4 @@ curl -X POST 'http://localhost:3000/api/ai/chat' \
 3. **API Key 安全**：DeepSeek API Key 已配置在服务端，客户端无需传递
 4. **错误处理**：如果请求失败，会返回 JSON 格式的错误信息
 
+

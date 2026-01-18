@@ -47,6 +47,11 @@ app.get('/admin', (req, res) => {
   res.sendFile(path.join(publicPath, 'index.html'));
 });
 
+// 隐私政策页面路由
+app.get('/policy', (req, res) => {
+  res.sendFile(path.join(publicPath, 'policy.html'));
+});
+
 // 健康检查
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', message: '数字艺术馆 API 服务运行正常' });

@@ -32,3 +32,4 @@ echo "   上传到服务器：scp ${OUTPUT_FILE} root@服务器IP:/opt/"
 echo "   或使用部署脚本：./部署脚本.sh 服务器IP"
 
 
+
